@@ -7,8 +7,9 @@ own Top Traders endpoint is not public.
 import json, sys, time, urllib.request, collections, os
 from concurrent.futures import ThreadPoolExecutor
 
-RPC = os.environ.get("SOL_RPC", "https://solana-rpc.publicnode.com")
-POOL = ThreadPoolExecutor(12)
+# An empty SOL_RPC (an unset GitHub secret) falls back to the free public endpoint
+RPC = os.environ.get("SOL_RPC") or "https://solana-rpc.publicnode.com"
+POOL = ThreadPoolExecutor(int(os.environ.get("RPC_THREADS") or 12))
 DS = "https://api.dexscreener.com"
 WSOL = "So11111111111111111111111111111111111111112"
 STABLES = {"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "USDC",
@@ -29,7 +30,7 @@ def get(url, body=None, tries=6):
             wait = 2 ** i
             print(f"  retry {i+1} after {e} (sleep {wait}s)", file=sys.stderr)
             time.sleep(wait)
-    raise RuntimeError(f"failed: {url}")
+    raise RuntimeError(f"failed: {url.split('?')[0]}")  # never log an API key in the query
 
 
 def rpc_one(call):

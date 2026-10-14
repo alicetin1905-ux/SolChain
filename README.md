@@ -19,6 +19,16 @@ MAX_PAIRS=15 SWAPS=1500 python3 scripts/collect.py data
 python3 -m http.server   # then open http://localhost:8000
 ```
 
-Set `SOL_RPC` to use your own Solana RPC endpoint (faster than the free public one).
+## Own RPC
+
+The free public RPC is slow and rate-limited. To use your own endpoint (Helius, QuickNode, Alchemy, …):
+
+1. Copy your Solana mainnet RPC URL, e.g. `https://mainnet.helius-rpc.com/?api-key=YOUR_KEY`.
+2. In the repo go to **Settings → Secrets and variables → Actions → New repository secret**, name it `SOL_RPC` and paste the URL.
+3. Optional: under the **Variables** tab add `RPC_THREADS` (default 8) to match your plan's requests per second.
+
+One run makes about 22,500 RPC calls (15 pairs × 1,500 transactions). Check that against your plan's monthly credits and adjust the cron in the workflow if needed.
+
+Locally: `SOL_RPC=https://... python3 scripts/collect.py data`.
 
 Not financial advice.

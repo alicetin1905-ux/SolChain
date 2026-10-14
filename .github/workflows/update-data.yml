@@ -25,6 +25,10 @@ jobs:
         env:
           MAX_PAIRS: "15"
           SWAPS: "1500"
+          # Your own Solana RPC URL (repo secret). Without it the free public endpoint is used.
+          SOL_RPC: ${{ secrets.SOL_RPC }}
+          # Parallel RPC requests; lower it if your RPC plan returns 429 errors.
+          RPC_THREADS: ${{ vars.RPC_THREADS || '8' }}
         run: |
           mkdir -p out
           python -u scripts/collect.py out
