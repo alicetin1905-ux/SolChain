@@ -40,4 +40,6 @@ jobs:
           git add data/*.json
           git diff --cached --quiet && exit 0
           git commit -m "Update trader data"
+          # main may have moved while the collector ran; replay the data commit on top
+          git pull --rebase origin main
           git push
