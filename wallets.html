@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SolChain Wallet Scores</title>
+<meta name="description" content="Candidate wallets judged on 30 days of trades, with a backtest of copying them.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets.css">
+<style>
+  .flags { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; min-width: 10rem; }
+  .pill.follow { color: var(--accent); border-color: currentColor; }
+  .pill.ok { color: var(--gain); border-color: currentColor; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html">Copy-trade (paper)</a><a href="early.html">Early buyers</a><a href="wallets.html" aria-current="page">Wallet scores</a></nav>
+  <header class="head" id="overview">
+    <div class="eyebrow"><span>Solana · 30-day history</span><span class="live" id="fresh">Loading data</span></div>
+    <h1>Wallet scores</h1>
+    <p class="take" id="take">Loading…</p>
+    <p class="when" id="when"></p>
+  </header>
+
+  <section class="tape" aria-label="Headline figures">
+    <div class="fig"><span class="fig-label">Wallets scored</span><span class="fig-value" id="k-scored">—</span><span class="fig-note" id="k-sources">—</span></div>
+    <div class="fig"><span class="fig-label">Pass every check</span><span class="fig-value" id="k-pass">—</span><span class="fig-note">copied by the engine</span></div>
+    <div class="fig"><span class="fig-label">Look like bots</span><span class="fig-value" id="k-bots">—</span><span class="fig-note" id="k-bot-note">—</span></div>
+    <div class="fig"><span class="fig-label">Best backtest</span><span class="fig-value" id="k-best">—</span><span class="fig-note" id="k-best-note">—</span></div>
+  </section>
+
+  <section class="card" id="scores">
+    <h2>Scored wallets</h2>
+    <p class="note">"Copy backtest" is what copying the wallet would have made over the window: 1 SOL into every token it bought, sold in the same shares as it sold, with slippage and fees, and anything left valued at today's price. Wallets that pass every check come first.</p>
+    <div class="controls">
+      <label class="toggle" for="only-pass"><input id="only-pass" type="checkbox"> Only wallets that pass</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="scroll">
+      <table id="score-table">
+        <thead><tr>
+          <th class="plain"><span>Wallet</span></th>
+          <th class="plain hide-narrow"><span>Source</span></th>
+          <th class="plain num"><span>Copy backtest</span></th>
+          <th class="plain num"><span>Won</span></th>
+          <th class="plain num hide-narrow"><span>Tokens</span></th>
+          <th class="plain num hide-narrow"><span>Own PnL</span></th>
+          <th class="plain num hide-narrow"><span>Median hold</span></th>
+          <th class="plain num hide-narrow"><span>Tx a day</span></th>
+          <th class="plain"><span>Verdict</span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card method" id="method">
+    <h2>How wallets are judged</h2>
+    <ul>
+      <li><b>Candidates.</b> The leaderboard's best non-bot wallets, the repeat early buyers, the wallets the engine follows now and last run's picks.</li>
+      <li><b>History.</b> Up to <span id="m-txs">250</span> of each wallet's most recent transactions from the last <span id="m-days">30</span> days are read and its swaps worked out per token. Very active wallets therefore cover fewer days.</li>
+      <li><b>Checks.</b> A wallet is copied only when it traded at least <span id="m-min-tokens">5</span> tokens, at least <span id="m-win">30%</span> of its copies would have made money, the copy backtest is positive, it makes no more than <span id="m-tx">150</span> transactions a day, and it usually holds a token for at least <span id="m-hold">60</span> seconds.</li>
+      <li><b>Copying.</b> The engine follows the 10 best that pass, by backtest, plus up to 5 early buyers that pass. It drops a wallet whose live copies keep losing.</li>
+      <li><b>Limits.</b> The backtest uses the wallet's own prices plus <span id="m-slip">3%</span> slippage, not the price a copier would really have got a few seconds later.</li>
+    </ul>
+  </section>
+
+  <footer>Data: Solana RPC, Dexscreener public API. Updated daily. Not financial advice.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const sol = (v, d = 2) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : v > 0 ? '+' : '') + d3.format(`,.${d}f`)(Math.abs(v)) + ' SOL');
+  const short = (w) => (w && w.length > 10 ? w.slice(0, 4) + '…' + w.slice(-4) : w || '—');
+  const isAddr = (w) => typeof w === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(w);
+  const when = (s) => { const d = new Date(s); return isNaN(d) ? '—' : d3.utcFormat('%b %-d, %H:%M')(d); };
+  const ago = (s) => { const m = Math.round((Date.now() - new Date(s)) / 60000); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const dur = (s) => (s == null ? '—' : s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : s < 172800 ? `${d3.format('.1f')(s / 3600)} h` : `${Math.round(s / 86400)} d`);
+  const tone = (el, v) => { el.classList.toggle('gain', v > 0); el.classList.toggle('loss', v < 0); return el; };
+  const emptyRow = (tb, cols, text) => { const td = tb.insertRow().insertCell(); td.colSpan = cols; const d = document.createElement('div'); d.className = 'empty'; d.textContent = text; td.append(d); };
+  const SRC = { leaderboard: 'Leaderboard', early: 'Early buyer', followed: 'Already followed' };
+
+  let S = null, followed = new Set(), onlyPass = false;
+
+  function headline() {
+    const rows = S.wallets, pass = rows.filter((r) => !r.flags.length);
+    const bots = rows.filter((r) => r.flags.includes('bot-like activity') || r.flags.includes('flips too fast to copy'));
+    $('k-scored').textContent = rows.length;
+    const bySrc = d3.rollup(rows, (v) => v.length, (r) => r.source);
+    $('k-sources').textContent = [...bySrc].map(([k, v]) => `${v} ${(SRC[k] || k).toLowerCase()}`).join(', ');
+    $('k-pass').textContent = pass.length;
+    $('k-bots').textContent = bots.length;
+    $('k-bot-note').textContent = `over ${S.rules.maxTxPerDay} tx a day or flipping in under ${S.rules.minHoldSec} s`;
+    const best = rows.slice().sort((a, b) => b.copyPnlSol - a.copyPnlSol)[0];
+    $('k-best').textContent = best ? sol(best.copyPnlSol) : '—'; if (best) tone($('k-best'), best.copyPnlSol);
+    $('k-best-note').textContent = best ? `${short(best.wallet)}, ${best.tokens} tokens` : '—';
+    $('take').textContent = pass.length
+      ? `${pass.length} of ${rows.length} candidate wallets pass every check and are copied by the engine. ${bots.length} look like bots and are left out.`
+      : `None of the ${rows.length} candidates passes every check this time, so the engine keeps following the leaderboard's top. ${bots.length} look like bots.`;
+    $('when').textContent = `Updated ${when(S.updatedAt)} UTC.`;
+    $('fresh').textContent = `Updated ${ago(S.updatedAt)}`;
+    $('fresh').classList.toggle('stale', (Date.now() - new Date(S.updatedAt)) / 3.6e6 > 30);
+    $('m-txs').textContent = S.walletTxs; $('m-days').textContent = S.days;
+    $('m-min-tokens').textContent = S.rules.minTokens; $('m-win').textContent = S.rules.minWinRatePct + '%';
+    $('m-tx').textContent = S.rules.maxTxPerDay; $('m-hold').textContent = S.rules.minHoldSec;
+    $('m-slip').textContent = d3.format('.0f')(S.slippagePct) + '%';
+  }
+
+  function table() {
+    const tb = document.querySelector('#score-table tbody'); tb.replaceChildren();
+    const rows = S.wallets.filter((r) => !onlyPass || !r.flags.length);
+    $('count').textContent = `${rows.length} wallets`;
+    if (!rows.length) return emptyRow(tb, 9, 'No wallet passes every check in this run.');
+    for (const r of rows) {
+      const tr = tb.insertRow();
+      const w = tr.insertCell(); w.className = 'data wallet';
+      if (isAddr(r.wallet)) { const a = document.createElement('a'); a.href = 'https://solscan.io/account/' + r.wallet; a.target = '_blank'; a.rel = 'noopener'; a.textContent = short(r.wallet); a.title = r.wallet; w.append(a); }
+      else w.textContent = short(r.wallet);
+      const src = tr.insertCell(); src.className = 'hide-narrow muted'; src.textContent = SRC[r.source] || r.source;
+      const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
+      tone(n(sol(r.copyPnlSol)), r.copyPnlSol);
+      n(r.copyWinRatePct == null ? '—' : d3.format('.0f')(r.copyWinRatePct) + '%');
+      n(r.tokens, 'hide-narrow');
+      tone(n(sol(r.ownPnlSol), 'hide-narrow'), r.ownPnlSol);
+      n(dur(r.medianHoldSec), 'hide-narrow');
+      n(d3.format(',.0f')(r.txPerDay), 'hide-narrow muted');
+      const v = tr.insertCell(); const box = document.createElement('div'); box.className = 'flags';
+      if (!r.flags.length) {
+        const p = document.createElement('span'); p.className = 'pill ' + (followed.has(r.wallet) ? 'follow' : 'ok');
+        p.textContent = followed.has(r.wallet) ? 'copied' : 'passes'; box.append(p);
+      }
+      for (const f of r.flags) { const p = document.createElement('span'); p.className = 'pill' + (f.includes('bot') || f.includes('fast') ? ' bot' : ''); p.textContent = f; box.append(p); }
+      v.append(box);
+    }
+  }
+
+  $('only-pass').addEventListener('change', (e) => { onlyPass = e.target.checked; if (S) table(); });
+  const get = (f) => fetch(`data/${f}.json?v=${Date.now()}`, { cache: 'no-store' }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  Promise.all([get('scores'), get('paper').catch(() => null)])
+    .then(([s, p]) => {
+      S = s;
+      if (p) followed = new Set(p.wallets.filter((w) => w.following).map((w) => w.wallet));
+      headline(); table();
+    })
+    .catch(() => {
+      $('take').textContent = 'The first scoring run has not finished yet. It runs once a day on GitHub.';
+      $('fresh').textContent = 'No data'; $('fresh').classList.add('stale');
+      emptyRow(document.querySelector('#score-table tbody'), 9, 'Waiting for the first run.');
+    });
+})();
+</script>
+</body>
+</html>

@@ -85,6 +85,14 @@ def git_sync(commit):
         os._exit(0)  # launchd (mac/install.sh) starts the engine again with the new code
 
 
+def log_trades(trades):
+    for t in trades:
+        if t["side"] == "skip":
+            log(f"  skipped {t['symbol']} bought by {t['wallet'][:6]}: {t['reason']}")
+        elif t.get("strategy", "follow") == "follow":  # the other strategies make the same entry
+            log(f"  {t['side']} {t['symbol']} copying {t['wallet'][:6]}: {t['sol']:+.3f} SOL, {t.get('lagSec')}s after the leader ({t.get('fill')})")
+
+
 class SubscriptionFailed(Exception):
     pass
 
@@ -123,8 +131,7 @@ class Engine:
             info = await asyncio.to_thread(P.token_info, {ev["mint"]})
             before = len(self.st["trades"])
             await asyncio.to_thread(P.apply_events, self.st, [ev], info, jup_fill)
-            for t in self.st["trades"][before:]:
-                log(f"  {t['side']} {t['symbol']} copying {wallet[:6]}: {t['sol']:+.3f} SOL, {t['lagSec']}s after the leader ({t['fill']})")
+            log_trades(self.st["trades"][before:])
 
     async def worker(self):
         while True:
@@ -196,8 +203,7 @@ class Engine:
                 info = await asyncio.to_thread(P.token_info, {e["mint"] for e in events})
                 before = len(self.st["trades"])
                 await asyncio.to_thread(P.apply_events, self.st, events, info, jup_fill)
-                for t in self.st["trades"][before:]:
-                    log(f"  {t['side']} {t['symbol']} copying {t['wallet'][:6]}: {t['sol']:+.3f} SOL, {t['lagSec']}s after the leader ({t['fill']})")
+                log_trades(self.st["trades"][before:])
 
     async def run(self):
         await asyncio.to_thread(git_sync, False)

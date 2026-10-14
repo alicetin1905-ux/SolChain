@@ -4,15 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SolChain Paper Copy-Trade</title>
-<meta name="description" content="A simulated copy-trading engine that follows the top 10 SolChain leaderboard wallets with 1 SOL per buy.">
+<meta name="description" content="A simulated copy-trading engine that follows scored Solana wallets and compares four exit strategies.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="assets.css">
+<style>
+  .strat tbody tr { cursor: pointer; }
+  .strat tbody tr:hover td { background: var(--hover); }
+  .strat tbody tr[aria-selected="true"] td { background: var(--accent-soft); }
+  .strat tbody tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .strat .label { color: var(--muted); font-size: 13px; white-space: normal; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; }
+  .seg { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+  .seg button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; }
+  .seg button[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
+  .reason { font-size: 12px; color: var(--muted); }
+  .skiprow td { color: var(--muted); }
+</style>
 </head>
 <body>
 <div class="wrap">
-  <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html" aria-current="page">Copy-trade (paper)</a><a href="early.html">Early buyers</a></nav>
+  <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html" aria-current="page">Copy-trade (paper)</a><a href="early.html">Early buyers</a><a href="wallets.html">Wallet scores</a></nav>
   <header class="head" id="overview">
     <div class="eyebrow"><span class="badge">Paper trading</span><span class="live" id="fresh">Loading data</span><span id="mode"></span></div>
     <h1>Copy-trading engine</h1>
@@ -20,22 +33,40 @@
     <p class="when" id="when"></p>
   </header>
 
+  <section class="card" id="strategies">
+    <h2>Exit strategies compared</h2>
+    <p class="note">Every copied buy is held four times, once per strategy, each with the same entry. Pick a strategy to see its positions below.</p>
+    <div class="scroll short">
+      <table class="strat" id="strat-table">
+        <thead><tr>
+          <th class="plain"><span>Strategy</span></th>
+          <th class="plain num"><span>Total PnL</span></th>
+          <th class="plain num hide-narrow"><span>Closed</span></th>
+          <th class="plain num"><span>Won</span></th>
+          <th class="plain num hide-narrow"><span>Open</span></th>
+          <th class="plain num hide-narrow"><span>Open PnL</span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="tape" id="headline" aria-label="Headline figures">
-    <div class="fig"><span class="fig-label">Total PnL</span><span class="fig-value" id="k-total">—</span><span class="fig-note" id="k-total-usd">—</span></div>
+    <div class="fig"><span class="fig-label" id="k-total-label">Total PnL</span><span class="fig-value" id="k-total">—</span><span class="fig-note" id="k-total-usd">—</span></div>
     <div class="fig"><span class="fig-label">Closed positions</span><span class="fig-value" id="k-realized">—</span><span class="fig-note" id="k-closed">—</span></div>
     <div class="fig"><span class="fig-label">Open positions</span><span class="fig-value" id="k-open">—</span><span class="fig-note" id="k-open-n">—</span></div>
-    <div class="fig"><span class="fig-label">Capital in use</span><span class="fig-value" id="k-capital">—</span><span class="fig-note" id="k-skipped">—</span></div>
+    <div class="fig"><span class="fig-label">Buys skipped</span><span class="fig-value" id="k-skipped">—</span><span class="fig-note" id="k-skip-why">—</span></div>
   </section>
 
   <section class="card" id="equity">
     <h2>PnL over time</h2>
-    <p class="note">Closed plus open PnL in SOL after each hourly check.</p>
+    <p class="note">Closed plus open PnL in SOL per strategy, after each check.</p>
     <div class="line-chart" id="chart"></div>
   </section>
 
   <section class="card" id="open">
-    <h2>Open positions</h2>
-    <p class="note">Copies the engine still holds, revalued at live Dexscreener prices every 15 seconds while this page is open. A position closes when the wallet it copies sells.</p>
+    <div class="detail-head"><h2>Open positions</h2><div class="seg" id="seg-open" role="group" aria-label="Strategy"></div></div>
+    <p class="note">Copies still held by the selected strategy, revalued at live Dexscreener prices every 15 seconds while this page is open.</p>
     <div class="scroll short">
       <table id="open-table">
         <thead><tr>
@@ -55,7 +86,7 @@
   <div class="row">
     <section class="card" id="wallets">
       <h2>Followed wallets</h2>
-      <p class="note">The top 10 non-bot wallets on the leaderboard, plus the best repeat early buyers from the <a href="early.html">Early buyers</a> page. When either list changes, a wallet that drops out stops being copied, but its open copies still follow its sells.</p>
+      <p class="note">The best scored wallets from <a href="wallets.html">Wallet scores</a> (the leaderboard's top until the first scores exist), plus the best early buyers that pass the same checks. A wallet is dropped once <span id="r-drop">10</span> of its copies closed at a net loss. Results below are for the "Sell when the wallet sells" strategy.</p>
       <div class="scroll short">
         <table id="wallet-table">
           <thead><tr>
@@ -73,13 +104,14 @@
 
     <section class="card" id="closed">
       <h2>Closed positions</h2>
-      <p class="note">Most recent first.</p>
+      <p class="note">For the selected strategy, most recent first.</p>
       <div class="scroll short">
         <table id="closed-table">
           <thead><tr>
             <th class="plain"><span>Token</span></th>
             <th class="plain hide-narrow"><span>Wallet</span></th>
             <th class="plain"><span>Closed</span></th>
+            <th class="plain hide-narrow"><span>Why</span></th>
             <th class="plain num"><span>PnL</span></th>
           </tr></thead>
           <tbody></tbody>
@@ -90,12 +122,12 @@
 
   <section class="card" id="trades">
     <h2>Trade log</h2>
-    <p class="note">Every simulated fill, most recent first. "Delay" is how long after the copied wallet's own trade the copy was filled. "Leader tx" opens that wallet's transaction on Solscan.</p>
+    <p class="note">Fills of the selected strategy and skipped buys, most recent first. "Delay" is how long after the copied wallet's own trade the copy was filled.</p>
     <div class="scroll short">
       <table id="trade-table">
         <thead><tr>
           <th class="plain"><span>Time</span></th>
-          <th class="plain"><span>Side</span></th>
+          <th class="plain"><span>Action</span></th>
           <th class="plain"><span>Token</span></th>
           <th class="plain hide-narrow"><span>Wallet</span></th>
           <th class="plain num"><span>SOL</span></th>
@@ -109,16 +141,16 @@
 
   <section class="card method" id="rules">
     <h2>Simulation rules</h2>
-    <ul id="rules-list">
+    <ul>
       <li><b>No real money.</b> Nothing is bought or sold. This page shows what copying would have done.</li>
-      <li><b>Buys.</b> When a followed wallet buys a token against SOL, USDC or USDT, the engine buys <span id="r-size">1 SOL</span> of it, once per wallet and token. Tokens with less than $25k liquidity are skipped.</li>
-      <li><b>Sells.</b> When that wallet sells, the engine sells the same share of its copy. Selling everything closes the position.</li>
-      <li><b>Prices.</b> When the live engine runs, each copy is priced with a real Jupiter quote at the moment it reacts, so price impact and the price move since the wallet's trade are included. Otherwise a fill is <span id="r-slip">3%</span> worse than the wallet's own price. Every fill also pays <span id="r-fee">0.001 SOL</span> in fees. Partial sells worth under 0.02 SOL are skipped.</li>
-      <li><b>Timing.</b> The live engine runs on an always-on Mac and reacts within seconds. When it is offline, a GitHub Action checks the wallets every hour instead.</li>
+      <li><b>Buys.</b> When a followed wallet buys a token against SOL, USDC or USDT, each strategy buys <span id="r-size">1 SOL</span> of it, once per wallet and token.</li>
+      <li><b>Skipped buys.</b> A buy is skipped when the token has less than $25k liquidity, when its creator can still mint new tokens or freeze holders' tokens, when its 10 largest holders (the pool left out) own more than <span id="r-top10">40%</span>, or when the live price is already more than <span id="r-chase">15%</span> above the wallet's own.</li>
+      <li><b>Exits.</b> Every strategy sells the same share as the wallet whenever it sells. On top of that, "−30%" sells everything once the price is 30% below entry; "2× then trail" sells half at double the entry and the rest once the price falls 30% below its peak; "24 hours" sells everything a day after entry. These exits are checked every minute on the live engine and every hour otherwise.</li>
+      <li><b>Prices.</b> On the live engine, copies of the wallet's trades are priced with a real Jupiter quote at the moment it reacts. Otherwise, and for the strategy exits, a fill is <span id="r-slip">3%</span> worse than the price used. Every fill pays <span id="r-fee">0.001 SOL</span> in fees. Partial sells worth under 0.02 SOL are skipped.</li>
     </ul>
   </section>
 
-  <footer>Data: Solana RPC, Dexscreener public API. Not financial advice.</footer>
+  <footer>Data: Solana RPC, Jupiter, Dexscreener public API. Not financial advice.</footer>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
@@ -135,13 +167,19 @@
   const when = (s) => { const d = new Date(s); return isNaN(d) ? '—' : d3.utcFormat('%b %-d, %H:%M')(d); };
   const ago = (s) => { const m = Math.round((Date.now() - new Date(s)) / 60000); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
   const tone = (el, v) => { el.classList.toggle('gain', v > 0); el.classList.toggle('loss', v < 0); return el; };
-  const link = (href, text, cls) => { const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text; if (cls) a.className = cls; return a; };
+  const link = (href, text) => { const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text; return a; };
   const walletCell = (td, w) => { td.classList.add('data'); if (isAddr(w)) td.append(link('https://solscan.io/account/' + w, short(w))); else td.textContent = short(w); };
   const tokenCell = (td, sym, mint) => { if (isAddr(mint)) td.append(link('https://dexscreener.com/solana/' + mint, sym)); else td.textContent = sym; };
-  const emptyRow = (tbody, cols, text) => { const td = tbody.insertRow().insertCell(); td.colSpan = cols; td.innerHTML = '<div class="empty"></div>'; td.firstChild.textContent = text; };
+  const emptyRow = (tb, cols, text) => { const td = tb.insertRow().insertCell(); td.colSpan = cols; const d = document.createElement('div'); d.className = 'empty'; d.textContent = text; td.append(d); };
 
-  let D = null;
-  let LIVE = null;  // live Dexscreener prices for open positions: {prices: Map(mint -> USD), solUsd, at}
+  const ORDER = ['follow', 'stop30', 'tp2x', 'max24h'];
+  const NAMES = { follow: 'Follow the wallet', stop30: '−30% stop', tp2x: '2× then trail', max24h: '24 hours' };
+  const SKIPS = { lowLiquidity: 'low liquidity', mintAuthority: 'can still be minted', freezeAuthority: 'can be frozen', concentrated: 'few big holders', chase: 'price ran away' };
+  const COLORS = () => { const c = getComputedStyle(document.documentElement); return { follow: c.getPropertyValue('--accent').trim(), stop30: '#c2410c', tp2x: '#7c3aed', max24h: '#0e7490' }; };
+  const stratOf = (x) => x.strategy || 'follow';
+
+  let D = null, LIVE = null, strat = 'follow';
+  try { strat = localStorage.getItem('solchain-strategy') || 'follow'; } catch (e) {}
   const WSOL = 'So11111111111111111111111111111111111111112';
   const STABLE = new Set(['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY5NNmFfeQe36Ci']);
 
@@ -155,114 +193,157 @@
         const res = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints.slice(i, i + 30).join(',')}`);
         if (!res.ok) return;
         for (const p of await res.json()) {
-          const m = p.baseToken?.address, l = p.liquidity?.usd || 0, usd = Number(p.priceUsd);
-          if (!isFinite(usd)) continue;
-          if (m === WSOL) { if (STABLE.has(p.quoteToken?.address) && l > solLiq) { solUsd = usd; solLiq = l; } continue; }
-          if (l > (liq.get(m) ?? -1)) { prices.set(m, usd); liq.set(m, l); }
+          const m = p.baseToken?.address, l = p.liquidity?.usd || 0, u = Number(p.priceUsd);
+          if (!isFinite(u)) continue;
+          if (m === WSOL) { if (STABLE.has(p.quoteToken?.address) && l > solLiq) { solUsd = u; solLiq = l; } continue; }
+          if (l > (liq.get(m) ?? -1)) { prices.set(m, u); liq.set(m, l); }
         }
       }
-    } catch (e) { return; }  // keep the last values
+    } catch (e) { return; }
     LIVE = { prices, solUsd, at: new Date() };
     draw();
   }
 
-  // Revalue open positions with the live prices; everything else stays as the engine published it.
+  // Revalue open positions with live prices and recompute each strategy's open and total PnL.
   function applyLive() {
     if (!LIVE) return;
     const sp = LIVE.solUsd || D.summary.solUsd;
-    let open = 0;
-    for (const p of D.positions) {
-      const usd = LIVE.prices.get(p.mint);
-      if (usd != null && p.qtyLeft != null) {
-        p.valueSol = p.qtyLeft * usd / sp;
-        p.pnlSol = p.realizedSol + p.valueSol - p.entrySol;
-      }
-      open += p.pnlSol;
-    }
     D.summary.solUsd = sp;
-    D.summary.openPnlSol = open;
-    D.summary.totalPnlSol = D.summary.realizedSol + open;
+    const open = {};
+    for (const p of D.positions) {
+      const u = LIVE.prices.get(p.mint);
+      if (u != null && p.qtyLeft != null) { p.valueSol = p.qtyLeft * u / sp; p.pnlSol = p.realizedSol + p.valueSol - p.entrySol; }
+      open[stratOf(p)] = (open[stratOf(p)] || 0) + p.pnlSol;
+    }
+    for (const [k, s] of Object.entries(D.summary.strategies || {})) {
+      s.openPnlSol = open[k] || 0;
+      s.totalPnlSol = s.realizedSol + s.openPnlSol;
+    }
+  }
+
+  const S = () => (D.summary.strategies || {})[strat] || D.summary;
+
+  function stratTable() {
+    const tb = document.querySelector('#strat-table tbody'); tb.replaceChildren();
+    const ss = D.summary.strategies || { follow: D.summary };
+    const col = COLORS();
+    for (const k of ORDER.filter((k) => ss[k])) {
+      const s = ss[k];
+      const tr = tb.insertRow(); tr.dataset.key = k; tr.tabIndex = 0; tr.setAttribute('aria-selected', String(k === strat));
+      const name = tr.insertCell();
+      const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = col[k];
+      const b = document.createElement('b'); b.textContent = NAMES[k] || k;
+      const lab = document.createElement('div'); lab.className = 'label'; lab.textContent = (D.strategies || {})[k] || '';
+      name.append(sw, b, lab);
+      const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
+      tone(n(signedSol(s.totalPnlSol)), s.totalPnlSol);
+      n(s.closedPositions, 'hide-narrow');
+      n(s.winRatePct == null ? '—' : d3.format('.0f')(s.winRatePct) + '%');
+      n(s.openPositions, 'hide-narrow');
+      tone(n(signedSol(s.openPnlSol), 'hide-narrow'), s.openPnlSol);
+    }
+    const seg = $('seg-open'); seg.replaceChildren();
+    for (const k of ORDER.filter((k) => ss[k])) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = NAMES[k]; b.dataset.key = k;
+      b.setAttribute('aria-pressed', String(k === strat)); seg.append(b);
+    }
   }
 
   function headline() {
-    const s = D.summary;
-    $('k-total').textContent = signedSol(s.totalPnlSol); tone($('k-total'), s.totalPnlSol);
-    $('k-total-usd').textContent = `≈ ${usd(s.totalPnlSol * s.solUsd)} at $${d3.format(',.2f')(s.solUsd)} per SOL`;
-    $('k-realized').textContent = signedSol(s.realizedSol); tone($('k-realized'), s.realizedSol);
-    $('k-closed').textContent = s.closedPositions ? `${s.closedPositions} closed, ${d3.format('.0f')(s.winRatePct)}% in profit` : 'None closed yet';
-    $('k-open').textContent = signedSol(s.openPnlSol); tone($('k-open'), s.openPnlSol);
-    $('k-open-n').textContent = `${s.openPositions} position${s.openPositions === 1 ? '' : 's'} open`;
-    $('k-capital').textContent = sol(s.capitalInUseSol, 0);
-    $('k-skipped').textContent = `${s.skippedLowLiquidity} buy${s.skippedLowLiquidity === 1 ? '' : 's'} skipped for low liquidity`;
-    const n = s.openPositions + s.closedPositions;
-    const who = s.followingEarly ? `${s.following} wallets (${s.following - s.followingEarly} from the leaderboard, ${s.followingEarly} early buyers)` : `the top ${s.following} wallets`;
-    $('take').textContent = n
-      ? `Copying ${who} with ${sol(s.tradeSol, 0)} per buy has made ${signedSol(s.totalPnlSol)} since ${when(s.startedAt)} UTC, across ${n} copied position${n === 1 ? '' : 's'}.`
-      : `Following ${who} with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. No copies yet: a position opens the first time one of them buys a token with at least $25k liquidity.`;
+    const s = D.summary, cur = S();
+    $('k-total-label').textContent = `Total PnL · ${NAMES[strat] || strat}`;
+    $('k-total').textContent = signedSol(cur.totalPnlSol); tone($('k-total'), cur.totalPnlSol);
+    $('k-total-usd').textContent = `≈ ${usd(cur.totalPnlSol * s.solUsd)} at $${d3.format(',.2f')(s.solUsd)} per SOL`;
+    $('k-realized').textContent = signedSol(cur.realizedSol); tone($('k-realized'), cur.realizedSol);
+    $('k-closed').textContent = cur.closedPositions ? `${cur.closedPositions} closed, ${d3.format('.0f')(cur.winRatePct)}% in profit` : 'None closed yet';
+    $('k-open').textContent = signedSol(cur.openPnlSol); tone($('k-open'), cur.openPnlSol);
+    $('k-open-n').textContent = `${cur.openPositions} position${cur.openPositions === 1 ? '' : 's'}, ${sol(cur.capitalInUseSol, 0)} in use`;
+    const skips = s.skips || { lowLiquidity: s.skippedLowLiquidity || 0 };
+    const total = d3.sum(Object.values(skips));
+    $('k-skipped').textContent = d3.format(',')(total);
+    $('k-skip-why').textContent = total ? Object.entries(skips).filter(([, v]) => v).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${SKIPS[k] || k}`).join(', ') : 'None yet';
+    const ss = s.strategies || {};
+    const best = ORDER.filter((k) => ss[k] && ss[k].closedPositions + ss[k].openPositions).sort((a, b) => ss[b].totalPnlSol - ss[a].totalPnlSol)[0];
+    const parts = [s.followingScored ? `${s.followingScored} scored` : null, s.following - (s.followingScored || 0) - (s.followingEarly || 0) ? `${s.following - (s.followingScored || 0) - (s.followingEarly || 0)} from the leaderboard` : null, s.followingEarly ? `${s.followingEarly} early buyers` : null].filter(Boolean).join(', ');
+    $('take').textContent = best
+      ? `Copying ${s.following} wallets (${parts}) with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. Best strategy so far: "${NAMES[best]}" at ${signedSol(ss[best].totalPnlSol)}.`
+      : `Following ${s.following} wallets (${parts}) with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. No copies yet.`;
     $('when').textContent = `Prices and positions as of ${when(s.updatedAt)} UTC.`;
     $('fresh').textContent = `Checked ${ago(s.updatedAt)}`;
     const live = s.engine === 'live';
     $('fresh').classList.toggle('stale', (Date.now() - new Date(s.updatedAt)) / 3.6e6 > (live ? 0.5 : 3));
-    $('mode').textContent = live
-      ? `Live engine${s.medianLagSec != null ? ` · median delay ${d3.format('.0f')(s.medianLagSec)} s` : ''}`
-      : 'Hourly check';
-    if (LIVE && D.positions.length) $('mode').textContent += ` · prices live ${d3.timeFormat('%H:%M:%S')(LIVE.at)}`;
+    $('mode').textContent = (live ? `Live engine${s.medianLagSec != null ? ` · median delay ${d3.format('.0f')(s.medianLagSec)} s` : ''}` : 'Hourly check')
+      + (LIVE && D.positions.length ? ` · prices live ${d3.timeFormat('%H:%M:%S')(LIVE.at)}` : '');
     $('r-size').textContent = sol(s.tradeSol, 0);
     $('r-slip').textContent = d3.format('.0f')(s.slippagePct) + '%';
     $('r-fee').textContent = sol(s.feeSol);
+    if (s.chasePct != null) $('r-chase').textContent = d3.format('.0f')(s.chasePct) + '%';
+    if (s.top10MaxPct != null) $('r-top10').textContent = d3.format('.0f')(s.top10MaxPct) + '%';
+    if (s.dropAfter != null) $('r-drop').textContent = s.dropAfter;
   }
 
   function chart() {
-    const box = $('chart');
-    box.replaceChildren();
-    const pts = D.equity.map((e) => ({ t: new Date(e.t), v: e.realizedSol + e.openPnlSol })).filter((p) => !isNaN(p.t));
-    if (LIVE && pts.length && LIVE.at > pts[pts.length - 1].t) pts.push({ t: LIVE.at, v: D.summary.totalPnlSol });
-    if (pts.length < 2) { box.innerHTML = '<div class="empty">The line appears after two hourly checks.</div>'; return; }
-    const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim();
+    const box = $('chart'); box.replaceChildren();
+    const ss = D.summary.strategies || {};
+    const keys = ORDER.filter((k) => k === 'follow' || ss[k]);
+    const series = keys.map((k) => ({ k, pts: D.equity.map((e) => ({ t: new Date(e.t), v: e.byStrategy ? e.byStrategy[k] : (k === 'follow' ? e.realizedSol + e.openPnlSol : undefined) }))
+      .filter((p) => !isNaN(p.t) && p.v != null) }));
+    if (LIVE) for (const s of series) if (s.pts.length && LIVE.at > s.pts[s.pts.length - 1].t && ss[s.k]) s.pts.push({ t: LIVE.at, v: ss[s.k].totalPnlSol });
+    const all = series.flatMap((s) => s.pts);
+    if (series[0].pts.length < 2) { box.innerHTML = '<div class="empty">The lines appear after two checks.</div>'; return; }
+    const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim(), C = COLORS();
     const W = box.clientWidth || 600, H = 260, m = { t: 12, r: 16, b: 26 };
-    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'PnL over time');
-    const lo = Math.min(0, d3.min(pts, (p) => p.v)), hi = Math.max(0, d3.max(pts, (p) => p.v));
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'PnL over time per strategy');
+    const lo = Math.min(0, d3.min(all, (p) => p.v)), hi = Math.max(0, d3.max(all, (p) => p.v));
     const y = d3.scaleLinear([lo, hi || 1], [H - m.b, m.t]).nice();
     const yt = y.ticks(4);
     const probe = svg.append('text').attr('font-size', 11);
     m.l = (d3.max(yt, (t) => { probe.text(sol(t, 1)); return probe.node().getComputedTextLength(); }) || 30) + 10;
     probe.remove();
-    const x = d3.scaleUtc(d3.extent(pts, (p) => p.t), [m.l, W - m.r]);
+    const x = d3.scaleUtc(d3.extent(all, (p) => p.t), [m.l, W - m.r]);
     svg.append('g').selectAll('line').data(yt).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', (t) => y(t)).attr('y2', (t) => y(t))
       .attr('stroke', (t) => (t === 0 ? col('--muted') : col('--line'))).attr('stroke-width', 1);
     svg.append('g').selectAll('text').data(yt).join('text').attr('x', m.l - 8).attr('y', (t) => y(t)).attr('dy', '0.35em').attr('text-anchor', 'end')
       .attr('font-size', 11).attr('fill', col('--muted')).text((t) => sol(t, 1));
-    const span = pts[pts.length - 1].t - pts[0].t;
+    const span = x.domain()[1] - x.domain()[0];
     const fmt = d3.utcFormat(span > 3 * 864e5 ? '%b %-d' : span > 864e5 ? '%b %-d %H:%M' : '%H:%M');
-    const xt = [...new Map(x.ticks(W < 500 ? 3 : 6).map((t) => [fmt(t), t])).values()];  // one tick per distinct label
+    const xt = [...new Map(x.ticks(W < 500 ? 3 : 6).map((t) => [fmt(t), t])).values()];
     svg.append('g').selectAll('text').data(xt).join('text').attr('x', (t) => x(t)).attr('y', H - 6).attr('text-anchor', 'middle')
       .attr('font-size', 11).attr('fill', col('--muted')).text(fmt);
-    svg.append('path').datum(pts).attr('fill', 'none').attr('stroke', col('--accent')).attr('stroke-width', 2)
-      .attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round').attr('d', d3.line((p) => x(p.t), (p) => y(p.v)));
-    const last = pts[pts.length - 1];
-    svg.append('circle').attr('cx', x(last.t)).attr('cy', y(last.v)).attr('r', 4).attr('fill', col('--accent'));
-    const dot = svg.append('circle').attr('r', 4).attr('fill', col('--accent')).attr('opacity', 0);
+    for (const s of [...series].sort((a, b) => (a.k === strat) - (b.k === strat))) {
+      if (s.pts.length < 2) continue;
+      svg.append('path').datum(s.pts).attr('fill', 'none').attr('stroke', C[s.k]).attr('stroke-width', s.k === strat ? 2.5 : 1.5)
+        .attr('stroke-opacity', s.k === strat ? 1 : 0.45).attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round')
+        .attr('d', d3.line((p) => x(p.t), (p) => y(p.v)));
+      const last = s.pts[s.pts.length - 1];
+      svg.append('circle').attr('cx', x(last.t)).attr('cy', y(last.v)).attr('r', s.k === strat ? 4 : 3).attr('fill', C[s.k]);
+    }
     const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; box.append(tip);
     svg.append('rect').attr('x', m.l).attr('y', 0).attr('width', W - m.l - m.r).attr('height', H).attr('fill', 'transparent')
       .on('pointermove', (event) => {
         const [mx] = d3.pointer(event);
-        const i = d3.bisector((p) => p.t).center(pts, x.invert(mx)), p = pts[i];
-        dot.attr('cx', x(p.t)).attr('cy', y(p.v)).attr('opacity', 1);
+        const t = x.invert(mx);
         tip.replaceChildren();
-        const k = document.createElement('div'); k.className = 'k'; k.textContent = when(p.t) + ' UTC';
-        const v = document.createElement('div'); v.textContent = signedSol(p.v);
-        tip.append(k, v); tip.hidden = false;
-        const bx = (x(p.t) / W) * box.clientWidth;
+        const k = document.createElement('div'); k.className = 'k'; k.textContent = when(t) + ' UTC'; tip.append(k);
+        for (const s of series) {
+          if (!s.pts.length) continue;
+          const p = s.pts[d3.bisector((p) => p.t).center(s.pts, t)];
+          const row = document.createElement('div');
+          const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = C[s.k];
+          row.append(sw, document.createTextNode(`${NAMES[s.k]}: ${signedSol(p.v)}`)); tip.append(row);
+        }
+        tip.hidden = false;
+        const bx = (mx / W) * box.clientWidth;
         tip.style.left = Math.max(0, Math.min(box.clientWidth - tip.offsetWidth, bx + 12)) + 'px';
-        tip.style.top = (y(p.v) / H) * box.clientHeight + 12 + 'px';
+        tip.style.top = '12px';
       })
-      .on('pointerleave', () => { tip.hidden = true; dot.attr('opacity', 0); });
+      .on('pointerleave', () => { tip.hidden = true; });
   }
 
   function openTable() {
     const tb = document.querySelector('#open-table tbody'); tb.replaceChildren();
-    const rows = D.positions.slice().sort((a, b) => b.pnlSol - a.pnlSol);
-    if (!rows.length) return emptyRow(tb, 7, 'No open copies right now.');
+    const rows = D.positions.filter((p) => stratOf(p) === strat).sort((a, b) => b.pnlSol - a.pnlSol);
+    if (!rows.length) return emptyRow(tb, 7, 'No open copies for this strategy right now.');
     for (const p of rows) {
       const tr = tb.insertRow();
       tokenCell(tr.insertCell(), p.symbol, p.mint);
@@ -279,11 +360,14 @@
     const tb = document.querySelector('#wallet-table tbody'); tb.replaceChildren();
     const rows = D.wallets.slice().sort((a, b) => (b.following - a.following) || (b.pnlSol - a.pnlSol));
     if (!rows.length) return emptyRow(tb, 6, 'No wallets followed yet.');
+    const SRC = { scored: 'Scored', early: 'Early buyer', leaderboard: 'Leaderboard' };
     for (const w of rows) {
       const tr = tb.insertRow();
       walletCell(tr.insertCell(), w.wallet);
-      const src = tr.insertCell(); src.className = 'muted'; src.textContent = w.source === 'early' ? 'Early buyer' : 'Leaderboard';
-      const s = tr.insertCell(); const pill = document.createElement('span'); pill.className = 'pill'; pill.textContent = w.following ? 'following' : 'dropped out'; s.append(pill);
+      const src = tr.insertCell(); src.className = 'muted'; src.textContent = SRC[w.source] || w.source;
+      const s = tr.insertCell(); const pill = document.createElement('span');
+      pill.className = 'pill' + (w.dropped ? ' bot' : ''); pill.textContent = w.dropped ? 'dropped: copies lost' : w.following ? 'following' : 'no longer followed';
+      s.append(pill);
       const n = (t) => { const td = tr.insertCell(); td.className = 'num'; td.textContent = t; return td; };
       n(w.positions); n(w.closed ? `${w.wins}/${w.closed}` : '—');
       tone(n(w.positions ? signedSol(w.pnlSol) : '—'), w.pnlSol);
@@ -292,53 +376,74 @@
 
   function closedTable() {
     const tb = document.querySelector('#closed-table tbody'); tb.replaceChildren();
-    if (!D.closed.length) return emptyRow(tb, 4, 'Nothing closed yet.');
-    for (const p of D.closed) {
+    const rows = D.closed.filter((p) => stratOf(p) === strat);
+    if (!rows.length) return emptyRow(tb, 5, 'Nothing closed yet for this strategy.');
+    for (const p of rows) {
       const tr = tb.insertRow();
       tokenCell(tr.insertCell(), p.symbol, p.mint);
       const w = tr.insertCell(); w.className = 'hide-narrow'; walletCell(w, p.wallet);
       const c = tr.insertCell(); c.className = 'muted'; c.textContent = when(p.closedAt);
+      const r = tr.insertCell(); r.className = 'hide-narrow reason'; r.textContent = p.closeReason || 'wallet sold';
       const v = tr.insertCell(); v.className = 'num'; v.textContent = signedSol(p.pnlSol); tone(v, p.pnlSol);
     }
   }
 
   function tradeTable() {
     const tb = document.querySelector('#trade-table tbody'); tb.replaceChildren();
-    if (!D.trades.length) return emptyRow(tb, 7, 'No simulated trades yet.');
-    for (const t of D.trades) {
-      const tr = tb.insertRow();
+    const rows = D.trades.filter((t) => t.side === 'skip' || stratOf(t) === strat);
+    if (!rows.length) return emptyRow(tb, 7, 'No simulated trades yet.');
+    for (const t of rows) {
+      const tr = tb.insertRow(); if (t.side === 'skip') tr.className = 'skiprow';
       const c = tr.insertCell(); c.className = 'muted'; c.textContent = when(t.time);
-      const s = tr.insertCell(); s.textContent = t.side === 'buy' ? 'Buy' : `Sell ${t.fraction != null && t.fraction < 0.98 ? d3.format('.0%')(t.fraction) : 'all'}`; s.className = t.side === 'buy' ? '' : 'muted';
+      const s = tr.insertCell();
+      if (t.side === 'buy') s.textContent = 'Buy';
+      else if (t.side === 'skip') s.textContent = `Skipped: ${SKIPS[t.reason] || t.reason}`;
+      else {
+        const share = t.fraction != null && t.fraction < 0.98 ? d3.format('.0%')(t.fraction) : 'all';
+        s.textContent = t.reason && t.reason !== 'wallet sold' ? `Sell (${t.reason})` : `Sell ${share}`;
+      }
       tokenCell(tr.insertCell(), t.symbol, t.mint);
       const w = tr.insertCell(); w.className = 'hide-narrow'; walletCell(w, t.wallet);
-      const v = tr.insertCell(); v.className = 'num'; v.textContent = (t.side === 'buy' ? '−' : '+') + d3.format(',.3f')(Math.abs(t.sol));
+      const v = tr.insertCell(); v.className = 'num'; v.textContent = t.side === 'skip' ? '—' : (t.side === 'buy' ? '−' : '+') + d3.format(',.3f')(Math.abs(t.sol));
       const lag = tr.insertCell(); lag.className = 'num hide-narrow muted';
-      lag.textContent = t.lagSec != null ? `${d3.format('.0f')(t.lagSec)} s${t.fill === 'jupiter' ? '' : ' (est.)'}` : 'hourly';
+      lag.textContent = t.side === 'skip' ? '' : t.lagSec != null ? `${d3.format('.0f')(t.lagSec)} s${t.fill === 'jupiter' ? '' : ' (est.)'}` : t.reason && t.reason !== 'wallet sold' ? 'rule' : 'hourly';
       const l = tr.insertCell(); l.className = 'hide-narrow data';
       if (isSig(t.leaderSig)) l.append(link('https://solscan.io/tx/' + t.leaderSig, t.leaderSig.slice(0, 8) + '…'));
     }
   }
 
-  function draw() { applyLive(); headline(); chart(); openTable(); walletTable(); closedTable(); tradeTable(); }
+  function draw() { applyLive(); stratTable(); headline(); chart(); openTable(); walletTable(); closedTable(); tradeTable(); }
+
+  function pick(k) {
+    if (!k || k === strat) return;
+    strat = k;
+    try { localStorage.setItem('solchain-strategy', k); } catch (e) {}
+    draw();
+  }
+  document.querySelector('#strat-table tbody').addEventListener('click', (e) => pick(e.target.closest('tr')?.dataset.key));
+  document.querySelector('#strat-table tbody').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e.target.closest('tr')?.dataset.key); } });
+  $('seg-open').addEventListener('click', (e) => pick(e.target.closest('button')?.dataset.key));
 
   const load = () => fetch(`data/paper.json?v=${Date.now()}`, { cache: 'no-store' })
     .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then((d) => {
       const first = !D;
-      D = d; draw();
+      D = d;
+      if (!(D.summary.strategies || {})[strat]) strat = 'follow';
+      draw();
       if (first) livePrices();
     });
   load().catch(() => {
-      $('take').textContent = 'The simulation has not run yet. Its first hourly check starts tracking the wallets.';
-      $('fresh').textContent = 'No data'; $('fresh').classList.add('stale');
-      for (const id of ['open-table', 'wallet-table', 'closed-table', 'trade-table']) emptyRow(document.querySelector(`#${id} tbody`), 7, 'Waiting for the first check.');
-      $('chart').innerHTML = '<div class="empty">Waiting for the first check.</div>';
-    });
-  setInterval(() => load().catch(() => {}), 30000);   // new trades from the engine
-  setInterval(livePrices, 15000);                      // open positions at live prices
+    $('take').textContent = 'The simulation has not run yet.';
+    $('fresh').textContent = 'No data'; $('fresh').classList.add('stale');
+    for (const id of ['open-table', 'wallet-table', 'closed-table', 'trade-table']) emptyRow(document.querySelector(`#${id} tbody`), 7, 'Waiting for the first check.');
+    $('chart').innerHTML = '<div class="empty">Waiting for the first check.</div>';
+  });
+  setInterval(() => load().catch(() => {}), 30000);
+  setInterval(livePrices, 15000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { load().catch(() => {}); livePrices(); } });
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => D && chart(), 150); });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => D && chart());
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => D && draw());
 })();
 </script>
 </body>

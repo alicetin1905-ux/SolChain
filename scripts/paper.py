@@ -6,13 +6,17 @@ and writes the result to data/paper.json for the site.
 
 Settings (environment):
   SOL_RPC        Solana RPC URL (falls back to the free public endpoint)
-  FOLLOW         number of leaderboard wallets to follow (default 10)
+  FOLLOW         number of wallets to follow: the best scored ones from data/scores.json,
+                 or the leaderboard's top when there are no scores yet (default 10)
   EARLY_FOLLOW   number of repeat early buyers from data/early.json to follow too (default 5)
+  DROP_AFTER     stop following a wallet once this many copies closed at a net loss (default 10)
+  CHASE_PCT      skip a copy when the live price is this much above the wallet's own (default 15)
+  TOP10_MAX_PCT  skip tokens whose 10 largest holders, pool left out, own more than this (default 40)
   TRADE_SOL      SOL per copied buy (default 1)
   SLIPPAGE_PCT   price penalty per fill for arriving after the leader (default 3)
   FEE_SOL        network + priority fee per fill (default 0.001)
 """
-import calendar, json, os, ssl, sys, time, urllib.request, collections
+import calendar, json, os, ssl, sys, time, urllib.error, urllib.request, collections
 from concurrent.futures import ThreadPoolExecutor
 
 RPC = os.environ.get("SOL_RPC") or "https://solana-rpc.publicnode.com"
@@ -25,6 +29,17 @@ TRADE_SOL = float(os.environ.get("TRADE_SOL") or 1)
 SLIP = float(os.environ.get("SLIPPAGE_PCT") or 3) / 100
 FEE_SOL = float(os.environ.get("FEE_SOL") or 0.001)
 MIN_LIQ_USD = 25_000
+DROP_AFTER = int(os.environ.get("DROP_AFTER") or 10)
+CHASE = float(os.environ.get("CHASE_PCT") or 15) / 100
+TOP10_MAX = float(os.environ.get("TOP10_MAX_PCT") or 40) / 100
+
+# Every copied buy is followed in each of these exit strategies side by side, 1 position each.
+STRATEGIES = {
+    "follow": "Sell when the wallet sells",
+    "stop30": "Also sell everything at -30%",
+    "tp2x": "Sell half at 2x, then trail the rest 30% below its peak",
+    "max24h": "Also sell everything after 24 hours",
+}
 DATA = sys.argv[1] if len(sys.argv) > 1 else "data"
 STATE = f"{DATA}/paper_state.json"
 try:  # macOS Pythons often can't find the system certificates; certifi ships its own
@@ -35,6 +50,10 @@ except ImportError:
 POOL = ThreadPoolExecutor(int(os.environ.get("RPC_THREADS") or 2))
 
 
+class Refused(RuntimeError):
+    """The server refused the request itself (not a rate limit), so retrying won't help."""
+
+
 def get(url, body=None, tries=4):
     for i in range(tries):
         try:
@@ -42,6 +61,11 @@ def get(url, body=None, tries=4):
                                          headers={"content-type": "application/json", "user-agent": "solchain-paper/1.0"})
             with urllib.request.urlopen(req, timeout=20, context=SSL_CTX) as r:
                 return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 401, 403, 404, 405, 413):
+                raise Refused(f"HTTP {e.code} from {url.split('?')[0]}")
+            print(f"  retry {i+1} after {e}", file=sys.stderr)
+            time.sleep(2 ** i)
         except Exception as e:
             print(f"  retry {i+1} after {e}", file=sys.stderr)
             time.sleep(2 ** i)
@@ -52,6 +76,9 @@ def rpc(method, params):
     for attempt in range(6):
         try:
             r = get(RPC, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        except Refused as e:
+            print(f"  {method} refused: {e}", file=sys.stderr)
+            return None
         except RuntimeError:  # rate-limited or unreachable for a while: back off and try again
             time.sleep(5 + 2 ** attempt)
             continue
@@ -127,9 +154,15 @@ def parse_swap(tx, wallet, sol_price):
 
 def load_state():
     try:
-        return json.load(open(STATE))
+        st = json.load(open(STATE))
     except FileNotFoundError:
-        return {"startedAt": now_iso(), "wallets": {}, "positions": [], "trades": [], "equity": [], "skipped": 0}
+        st = {"startedAt": now_iso(), "wallets": {}, "positions": [], "trades": [], "equity": []}
+    skips = st.setdefault("skips", {})
+    if "skipped" in st:  # older state kept one counter for low liquidity
+        skips["lowLiquidity"] = skips.get("lowLiquidity", 0) + st.pop("skipped")
+    for p in st["positions"] + st.get("closed", []):
+        p.setdefault("strategy", "follow")
+    return st
 
 
 def early_buyers():
@@ -138,21 +171,55 @@ def early_buyers():
         early = json.load(open(f"{DATA}/early.json"))
     except FileNotFoundError:
         return []
-    return [w["wallet"] for w in early.get("wallets", []) if not w["sniper"] and w["tokens"] >= 2][:EARLY_FOLLOW]
+    return [w["wallet"] for w in early.get("wallets", []) if not w["sniper"] and w["tokens"] >= 2]
+
+
+def load_scores():
+    try:
+        return json.load(open(f"{DATA}/scores.json"))
+    except FileNotFoundError:
+        return {}
+
+
+def scored_wallets():
+    """Wallets picked by scripts/score.py from their 30-day history and backtest, best first."""
+    return load_scores().get("selected", [])
+
+
+def failed_scoring():
+    """Wallets that scripts/score.py checked and found unfit to copy (bots, too fast, losing backtest)."""
+    return {r["wallet"] for r in load_scores().get("wallets", []) if r["flags"]}
+
+
+def losing_wallets(st):
+    """Wallets whose copies (follow strategy) closed at a net loss after at least DROP_AFTER of them."""
+    res = collections.defaultdict(list)
+    for p in st.get("closed", []):
+        if p["strategy"] == "follow":
+            res[p["wallet"]].append(p["pnlSol"])
+    return {w for w, pnl in res.items() if len(pnl) >= DROP_AFTER and sum(pnl) < 0}
 
 
 def follow_list(st):
-    """Leaderboard top wallets plus the best early buyers; marks who is followed and returns (top, wallets to watch)."""
-    traders = json.load(open(f"{DATA}/traders.json"))
-    board = [r["wallet"] for r in sorted((r for r in traders if r["botLike"] == "no"), key=lambda r: -r["pnlUsd"])[:FOLLOW]]
-    early = [w for w in early_buyers() if w not in board]
-    top = board + early
+    """Scored wallets (or the leaderboard's top) plus the best early buyers, minus wallets whose copies lose.
+    Marks who is followed and returns (followed, wallets to watch)."""
+    dropped = losing_wallets(st)
+    main = [w for w in scored_wallets() if w not in dropped][:FOLLOW]
+    source = "scored"
+    if not main:
+        traders = json.load(open(f"{DATA}/traders.json"))
+        board = [r["wallet"] for r in sorted((r for r in traders if r["botLike"] == "no"), key=lambda r: -r["pnlUsd"])]
+        main, source = [w for w in board if w not in dropped][:FOLLOW], "leaderboard"
+    unfit = failed_scoring()
+    early = [w for w in early_buyers() if w not in main and w not in dropped and w not in unfit][:EARLY_FOLLOW]
+    top = main + early
     for w in top:
         st["wallets"].setdefault(w, {"since": now_iso(), "lastSig": None})
     for w, info in st["wallets"].items():
         info["following"] = w in top
+        info["dropped"] = w in dropped
         if w in top:
-            info["source"] = "early" if w in early else "leaderboard"
+            info["source"] = "early" if w in early else source
     holders = {p["wallet"] for p in st["positions"]}
     return top, list(dict.fromkeys(top + sorted(holders)))  # keep watching wallets we still hold a copy of
 
@@ -188,77 +255,176 @@ def model_fill(side, ev, qty):
     return px * (1 + SLIP) if side == "buy" else px * (1 - SLIP), "model"
 
 
+def token_risk(st, mint):
+    """Why a token is too risky to buy (mint or freeze authority kept, or held by a few wallets), or None.
+    Results are cached per token; a check the RPC can't answer lets the buy through."""
+    cache = st.setdefault("tokenChecks", {})
+    if mint in cache:
+        return cache[mint]["reason"]
+    reason = None
+    acc = rpc("getAccountInfo", [mint, {"encoding": "jsonParsed"}]) or {}
+    info = (((acc.get("value") or {}).get("data") or {}).get("parsed") or {}).get("info") if isinstance(acc.get("value"), dict) else None
+    if info:
+        if info.get("mintAuthority"):
+            reason = "mintAuthority"
+        elif info.get("freezeAuthority"):
+            reason = "freezeAuthority"
+        else:
+            largest = (rpc("getTokenLargestAccounts", [mint]) or {}).get("value") or []
+            supply = float(info.get("supply") or 0) / 10 ** int(info.get("decimals") or 0)
+            amounts = sorted((float(a.get("uiAmount") or 0) for a in largest), reverse=True)
+            # the largest account is nearly always the pool or bonding curve, so it is left out
+            if supply and sum(amounts[1:11]) / supply > TOP10_MAX:
+                reason = "concentrated"
+    cache[mint] = {"reason": reason, "at": now_iso()}
+    if len(cache) > 3000:
+        for k in sorted(cache, key=lambda k: cache[k]["at"])[:500]:
+            del cache[k]
+    return reason
+
+
+def sell(st, p, q, px, when, src, reason, frac=None, lag=None, sig=None):
+    """Sell q tokens of a copy at px SOL each. Returns True when the position is now closed."""
+    got = q * px - FEE_SOL
+    p["qtyLeft"] -= q
+    p["realizedSol"] += got
+    st["trades"].append({"time": now_iso(when), "wallet": p["wallet"], "symbol": p["symbol"], "mint": p["mint"],
+                         "strategy": p["strategy"], "side": "sell", "reason": reason, "sol": round(got, 4), "price": px,
+                         "fraction": round(frac, 3) if frac is not None else None, "fill": src, "lagSec": lag, "leaderSig": sig})
+    if p["qtyLeft"] <= p["qty"] * 0.001:
+        p["closedAt"] = now_iso(when)
+        p["closeReason"] = reason
+        p["pnlSol"] = p["realizedSol"] - p["entrySol"]
+        st.setdefault("closed", []).append(p)
+        return True
+    return False
+
+
 def apply_events(st, events, info, fill=model_fill):
-    """Turn the leaders' swaps into simulated copy trades. `fill(side, event, qty)` returns (price, source)."""
-    open_pos = {(p["wallet"], p["mint"]): p for p in st["positions"]}
+    """Turn the leaders' swaps into simulated copy trades, one position per strategy.
+    `fill(side, event, qty)` returns (price, source)."""
+    skips = st.setdefault("skips", {})
+    open_pos = {(p["wallet"], p["mint"], p["strategy"]): p for p in st["positions"]}
     for ev in events:
         w, mint = ev["wallet"], ev["mint"]
         ti = info.get(mint, {})
-        key = (w, mint)
         lag = round(time.time() - ev["time"], 1) if ev.get("live") else None
+        mine = [p for (pw, pm, _), p in open_pos.items() if pw == w and pm == mint]
         if ev["dtok"] > 0:  # leader bought
-            if key in open_pos or not st["wallets"][w].get("following"):
+            if mine or not st["wallets"][w].get("following"):
                 continue
+            skip = None
             if ti.get("liquidityUsd", 0) < MIN_LIQ_USD:
-                st["skipped"] += 1
-                continue
-            px, src = fill("buy", ev, None)
-            if not px:
+                skip = "lowLiquidity"
+            else:
+                skip = token_risk(st, mint)
+            px = src = None
+            if not skip:
+                px, src = fill("buy", ev, None)
+                if not px:
+                    continue
+                leader_px = ev["sol"] / ev["dtok"]
+                if src == "jupiter" and px > leader_px * (1 + CHASE):
+                    skip = "chase"  # the price already ran away from the wallet's own entry
+            if skip:
+                seen = st.setdefault("lastSkip", {})
+                k = f"{w}:{mint}"
+                if ev["time"] - seen.get(k, 0) < 3600:
+                    continue  # the same wallet buying the same token again: logged and counted once an hour
+                seen[k] = ev["time"]
+                if len(seen) > 5000:
+                    for old in sorted(seen, key=seen.get)[:1000]:
+                        del seen[old]
+                skips[skip] = skips.get(skip, 0) + 1
+                st["trades"].append({"time": now_iso(ev["time"]), "wallet": w, "symbol": ti.get("symbol") or mint[:4] + "…",
+                                     "mint": mint, "side": "skip", "reason": skip, "sol": 0, "lagSec": lag, "leaderSig": ev["sig"]})
                 continue
             qty = (TRADE_SOL - FEE_SOL) / px
             sym = ti.get("symbol") or mint[:4] + "…"
-            open_pos[key] = {"wallet": w, "mint": mint, "symbol": sym, "openedAt": now_iso(ev["time"]), "entrySol": TRADE_SOL,
-                             "qty": qty, "qtyLeft": qty, "entryPrice": px, "realizedSol": 0.0, "leaderSig": ev["sig"],
-                             "decimals": ev.get("decimals")}
-            st["trades"].append({"time": now_iso(ev["time"]), "wallet": w, "symbol": sym, "mint": mint, "side": "buy",
-                                 "sol": round(TRADE_SOL, 4), "price": px, "fill": src, "lagSec": lag, "leaderSig": ev["sig"]})
-        else:  # leader sold
-            p = open_pos.get(key)
-            if not p:
-                continue
+            for strat in STRATEGIES:
+                open_pos[(w, mint, strat)] = {"wallet": w, "mint": mint, "symbol": sym, "strategy": strat,
+                                              "openedAt": now_iso(ev["time"]), "entrySol": TRADE_SOL, "qty": qty, "qtyLeft": qty,
+                                              "entryPrice": px, "peak": px, "realizedSol": 0.0, "leaderSig": ev["sig"],
+                                              "decimals": ev.get("decimals")}
+                st["trades"].append({"time": now_iso(ev["time"]), "wallet": w, "symbol": sym, "mint": mint, "strategy": strat,
+                                     "side": "buy", "sol": round(TRADE_SOL, 4), "price": px, "fill": src, "lagSec": lag,
+                                     "leaderSig": ev["sig"]})
+        elif mine:  # leader sold: every strategy still holding this copy sells the same share
             frac = min(1.0, abs(ev["dtok"]) / ev["pre"]) if ev["pre"] > 0 else 1.0
-            q = p["qtyLeft"] if frac > 0.98 else p["qtyLeft"] * frac
-            if frac <= 0.98 and q * ev["sol"] / abs(ev["dtok"]) < 0.02:
-                continue  # a tiny partial sell: fees would eat it, so the copy waits for a bigger one
-            px, src = fill("sell", ev, q)
+            qs = {p["strategy"]: (p["qtyLeft"] if frac > 0.98 else p["qtyLeft"] * frac) for p in mine}
+            if frac <= 0.98 and max(qs.values()) * ev["sol"] / abs(ev["dtok"]) < 0.02:
+                continue  # a tiny partial sell: fees would eat it, so the copies wait for a bigger one
+            px, src = fill("sell", ev, max(qs.values()))
             if px is None:
                 continue
-            got = q * px - FEE_SOL
-            p["qtyLeft"] -= q
-            p["realizedSol"] += got
-            st["trades"].append({"time": now_iso(ev["time"]), "wallet": w, "symbol": p["symbol"], "mint": mint, "side": "sell",
-                                 "sol": round(got, 4), "price": px, "fraction": round(frac, 3), "fill": src, "lagSec": lag,
-                                 "leaderSig": ev["sig"]})
-            if p["qtyLeft"] <= p["qty"] * 0.001:
-                p["closedAt"] = now_iso(ev["time"])
-                p["pnlSol"] = p["realizedSol"] - p["entrySol"]
-                st.setdefault("closed", []).append(p)
-                del open_pos[key]
+            for p in mine:
+                if sell(st, p, qs[p["strategy"]], px, ev["time"], src, "wallet sold", frac, lag, ev["sig"]):
+                    del open_pos[(w, mint, p["strategy"])]
     st["positions"] = list(open_pos.values())
 
 
-def publish(st, sp, top, engine):
-    """Mark open positions to the current price and write the state and the site's data/paper.json."""
-    info = token_info({p["mint"] for p in st["positions"]}) if st["positions"] else {}
-    unreal = 0.0
+def apply_exit_rules(st, cur_price):
+    """Price- and time-based exits of the strategies other than 'follow', at the current price."""
+    now = time.time()
+    still = []
     for p in st["positions"]:
-        cur = ((info.get(p["mint"]) or {}).get("priceUsd") or 0) / sp
+        cur = cur_price.get(p["mint"]) or 0
+        closed = False
+        if cur > 0:
+            p["peak"] = max(p.get("peak") or p["entryPrice"], cur)
+            px = cur * (1 - SLIP)
+            if p["strategy"] == "stop30" and cur <= p["entryPrice"] * 0.7:
+                closed = sell(st, p, p["qtyLeft"], px, now, "model", "stop-loss")
+            elif p["strategy"] == "tp2x":
+                if not p.get("tpDone") and cur >= p["entryPrice"] * 2:
+                    p["tpDone"] = True
+                    closed = sell(st, p, p["qtyLeft"] * 0.5, px, now, "model", "take-profit")
+                elif p.get("tpDone") and cur <= p["peak"] * 0.7:
+                    closed = sell(st, p, p["qtyLeft"], px, now, "model", "trailing stop")
+            elif p["strategy"] == "max24h" and now - epoch(p["openedAt"]) >= 86400:
+                closed = sell(st, p, p["qtyLeft"], px, now, "model", "time limit")
+        if not closed:
+            still.append(p)
+    st["positions"] = still
+
+
+def strategy_totals(positions, closed):
+    out = {}
+    for name, label in STRATEGIES.items():
+        op = [p for p in positions if p["strategy"] == name]
+        cl = [p for p in closed if p["strategy"] == name]
+        realized, unreal = sum(p["pnlSol"] for p in cl), sum(p["pnlSol"] for p in op)
+        out[name] = {"label": label, "realizedSol": round(realized, 4), "openPnlSol": round(unreal, 4),
+                     "totalPnlSol": round(realized + unreal, 4), "openPositions": len(op), "closedPositions": len(cl),
+                     "winRatePct": round(100 * sum(p["pnlSol"] > 0 for p in cl) / len(cl), 1) if cl else None,
+                     "capitalInUseSol": round(sum(p["entrySol"] for p in op), 2)}
+    return out
+
+
+def publish(st, sp, top, engine):
+    """Apply the exit rules, mark open positions to the current price, and write the state and data/paper.json."""
+    info = token_info({p["mint"] for p in st["positions"]}) if st["positions"] else {}
+    cur_price = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items()}
+    apply_exit_rules(st, cur_price)
+    for p in st["positions"]:
+        cur = cur_price.get(p["mint"]) or 0
         p["priceNow"] = cur
         p["valueSol"] = p["qtyLeft"] * cur
         p["pnlSol"] = p["realizedSol"] + p["valueSol"] - p["entrySol"]
-        unreal += p["pnlSol"]
     positions = st["positions"]
     closed = st.get("closed", [])
-    realized = sum(p["pnlSol"] for p in closed)
-    point = {"t": now_iso(), "realizedSol": round(realized, 4), "openPnlSol": round(unreal, 4), "open": len(positions)}
+    strats = strategy_totals(positions, closed)
+    f = strats["follow"]
+    point = {"t": now_iso(), "realizedSol": f["realizedSol"], "openPnlSol": f["openPnlSol"], "open": f["openPositions"],
+             "byStrategy": {k: v["totalPnlSol"] for k, v in strats.items()}}
     # live runs publish often; keep at most one equity point per 10 minutes
     if st["equity"] and time.time() - epoch(st["equity"][-1]["t"]) < 600:
         st["equity"][-1] = point
     else:
         st["equity"].append(point)
     st["equity"] = st["equity"][-6 * 24 * 60:]
-    st["trades"] = st["trades"][-2000:]
-    st["closed"] = closed[-1000:]
+    st["trades"] = st["trades"][-4000:]
+    st["closed"] = closed[-4000:]
     st["solUsd"] = sp
     st["engine"] = engine
     st["updatedAt"] = now_iso()
@@ -266,32 +432,35 @@ def publish(st, sp, top, engine):
 
     by_wallet = collections.defaultdict(lambda: {"pnlSol": 0.0, "positions": 0, "wins": 0, "closed": 0})
     for p in closed + positions:
+        if p["strategy"] != "follow":
+            continue
         b = by_wallet[p["wallet"]]
         b["pnlSol"] += p["pnlSol"]; b["positions"] += 1
         if "closedAt" in p:
             b["closed"] += 1; b["wins"] += p["pnlSol"] > 0
-    wallets = [{"wallet": w, "following": i.get("following", False), "since": i["since"], "source": i.get("source", "leaderboard"),
-                "pnlSol": round(by_wallet[w]["pnlSol"], 4), "positions": by_wallet[w]["positions"],
-                "closed": by_wallet[w]["closed"], "wins": by_wallet[w]["wins"]}
+    wallets = [{"wallet": w, "following": i.get("following", False), "dropped": i.get("dropped", False), "since": i["since"],
+                "source": i.get("source", "leaderboard"), "pnlSol": round(by_wallet[w]["pnlSol"], 4),
+                "positions": by_wallet[w]["positions"], "closed": by_wallet[w]["closed"], "wins": by_wallet[w]["wins"]}
                for w, i in st["wallets"].items() if i.get("following") or w in by_wallet]
-    wins = sum(p["pnlSol"] > 0 for p in closed)
-    lags = [t["lagSec"] for t in st["trades"] if t.get("lagSec") is not None]
+    lags = [t["lagSec"] for t in st["trades"] if t.get("lagSec") is not None and t["side"] == "buy"]
+    sources = collections.Counter(st["wallets"][w].get("source") for w in top)
     summary = {"startedAt": st["startedAt"], "updatedAt": st["updatedAt"], "engine": engine, "solUsd": sp,
-               "tradeSol": TRADE_SOL, "slippagePct": SLIP * 100, "feeSol": FEE_SOL, "following": len(top),
-               "followingEarly": sum(st["wallets"][w].get("source") == "early" for w in top),
-               "realizedSol": round(realized, 4), "openPnlSol": round(unreal, 4), "totalPnlSol": round(realized + unreal, 4),
-               "openPositions": len(positions), "closedPositions": len(closed),
-               "winRatePct": round(100 * wins / len(closed), 1) if closed else None,
-               "capitalInUseSol": round(sum(p["entrySol"] for p in positions), 2),
-               "skippedLowLiquidity": st["skipped"],
-               "medianLagSec": sorted(lags)[len(lags) // 2] if lags else None}
-    keep = ("wallet", "mint", "symbol", "openedAt", "entrySol", "entryPrice", "realizedSol", "pnlSol", "qtyLeft")
+               "tradeSol": TRADE_SOL, "slippagePct": SLIP * 100, "feeSol": FEE_SOL, "chasePct": CHASE * 100,
+               "top10MaxPct": TOP10_MAX * 100, "dropAfter": DROP_AFTER, "following": len(top),
+               "followingEarly": sources.get("early", 0), "followingScored": sources.get("scored", 0),
+               "realizedSol": f["realizedSol"], "openPnlSol": f["openPnlSol"], "totalPnlSol": f["totalPnlSol"],
+               "openPositions": f["openPositions"], "closedPositions": f["closedPositions"], "winRatePct": f["winRatePct"],
+               "capitalInUseSol": f["capitalInUseSol"], "skips": st.get("skips", {}),
+               "skippedLowLiquidity": st.get("skips", {}).get("lowLiquidity", 0),
+               "medianLagSec": sorted(lags)[len(lags) // 2] if lags else None, "strategies": strats}
+    keep = ("wallet", "mint", "symbol", "strategy", "openedAt", "entrySol", "entryPrice", "realizedSol", "pnlSol", "qtyLeft")
     pub = lambda p: {k: p[k] for k in keep if k in p} | (
-        {"closedAt": p["closedAt"]} if "closedAt" in p else {"priceNow": p.get("priceNow"), "valueSol": round(p.get("valueSol", 0), 4)})
-    json.dump({"summary": summary, "wallets": wallets, "positions": [pub(p) for p in positions],
-               "closed": [pub(p) for p in closed[-200:]][::-1], "trades": st["trades"][-200:][::-1],
+        {"closedAt": p["closedAt"], "closeReason": p.get("closeReason")} if "closedAt" in p
+        else {"priceNow": p.get("priceNow"), "valueSol": round(p.get("valueSol", 0), 4)})
+    json.dump({"summary": summary, "strategies": STRATEGIES, "wallets": wallets, "positions": [pub(p) for p in positions],
+               "closed": [pub(p) for p in closed[-800:]][::-1], "trades": st["trades"][-800:][::-1],
                "equity": st["equity"]}, open(f"{DATA}/paper.json", "w"))
-    print(f"open {len(positions)}, closed {len(closed)}, total PnL {realized + unreal:+.4f} SOL", file=sys.stderr)
+    print(" · ".join(f"{k} {v['totalPnlSol']:+.3f}" for k, v in strats.items()) + f" SOL; {len(positions)} open positions", file=sys.stderr)
 
 
 def live_engine_active(st):
