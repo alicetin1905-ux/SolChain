@@ -32,7 +32,7 @@ def log(msg):
 def jup_quote(input_mint, output_mint, amount):
     q = urllib.parse.urlencode({"inputMint": input_mint, "outputMint": output_mint, "amount": int(amount), "slippageBps": 500})
     req = urllib.request.Request(f"{JUP}?{q}", headers={"user-agent": "solchain-live/1.0"})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=10, context=P.SSL_CTX) as r:
         d = json.load(r)
     if "outAmount" not in d:
         raise RuntimeError(d.get("error") or "no route")
@@ -148,7 +148,7 @@ class Engine:
                         return  # ends this round; run() resubscribes
 
     async def subscribe(self):
-        async with websockets.connect(ws_url(P.RPC), ping_interval=30, max_size=None) as ws:
+        async with websockets.connect(ws_url(P.RPC), ping_interval=30, max_size=None, ssl=P.SSL_CTX) as ws:
             pending = {}
             for i, w in enumerate(self.watch):
                 await ws.send(json.dumps({"jsonrpc": "2.0", "id": i, "method": "logsSubscribe",

@@ -10,7 +10,7 @@ command -v python3 >/dev/null || { echo "Python 3 is missing. Run: xcode-select 
 
 echo "1/4 Python environment"
 python3 -m venv "$REPO/.venv"
-"$REPO/.venv/bin/pip" install -q --upgrade pip websockets
+"$REPO/.venv/bin/pip" install -q --upgrade pip websockets certifi
 
 echo "2/4 RPC"
 if [ ! -f "$HOME/.solchain.env" ]; then

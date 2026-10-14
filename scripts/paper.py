@@ -11,7 +11,7 @@ Settings (environment):
   SLIPPAGE_PCT   price penalty per fill for arriving after the leader (default 3)
   FEE_SOL        network + priority fee per fill (default 0.001)
 """
-import calendar, json, os, sys, time, urllib.request, collections
+import calendar, json, os, ssl, sys, time, urllib.request, collections
 from concurrent.futures import ThreadPoolExecutor
 
 RPC = os.environ.get("SOL_RPC") or "https://solana-rpc.publicnode.com"
@@ -25,6 +25,11 @@ FEE_SOL = float(os.environ.get("FEE_SOL") or 0.001)
 MIN_LIQ_USD = 25_000
 DATA = sys.argv[1] if len(sys.argv) > 1 else "data"
 STATE = f"{DATA}/paper_state.json"
+try:  # macOS Pythons often can't find the system certificates; certifi ships its own
+    import certifi
+    SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CTX = ssl.create_default_context()
 POOL = ThreadPoolExecutor(int(os.environ.get("RPC_THREADS") or 2))
 
 
@@ -33,7 +38,7 @@ def get(url, body=None, tries=4):
         try:
             req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
                                          headers={"content-type": "application/json", "user-agent": "solchain-paper/1.0"})
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with urllib.request.urlopen(req, timeout=20, context=SSL_CTX) as r:
                 return json.load(r)
         except Exception as e:
             print(f"  retry {i+1} after {e}", file=sys.stderr)
