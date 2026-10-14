@@ -1,0 +1,54 @@
+name: Watchlist
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: data-commit
+  cancel-in-progress: false
+
+jobs:
+  update:
+    # only the repository owner's "Watchlist update" issues change the watchlist
+    if: startsWith(github.event.issue.title, 'Watchlist') && github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Update the watchlist
+        id: apply
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: echo "added=$(python scripts/watchlist.py apply data)" >> "$GITHUB_OUTPUT"
+      - name: Score the new wallets
+        if: steps.apply.outputs.added != ''
+        env:
+          SOL_RPC: ${{ secrets.SOL_RPC }}
+          RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
+          SCORE_ONLY: ${{ steps.apply.outputs.added }}
+        run: python -u scripts/score.py data
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/watchlist.json data/scores.json 2>/dev/null || true
+          git diff --cached --quiet && exit 0
+          git commit -m "Update watchlist"
+          git pull --rebase origin main
+          git push
+      - name: Reply and close
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WALLETS: ${{ steps.apply.outputs.added }}
+        run: |
+          python scripts/watchlist.py report data
+          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body-file watchlist_reply.md
+          gh issue close ${{ github.event.issue.number }} --repo ${{ github.repository }}

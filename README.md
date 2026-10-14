@@ -53,3 +53,7 @@ It watches the wallets in real time, prices every copy with a Jupiter quote, and
 ## On the iPhone home screen
 
 The site is a web app: open https://alicetin1905-ux.github.io/SolChain/copy.html in Safari, tap Share, then "Add to Home Screen". It opens full screen with its own icon, always in the dark theme, and shows the last loaded data when offline (`manifest.webmanifest`, `sw.js`, `icons/`).
+
+## Watchlist
+
+Add wallets you found elsewhere (GMGN, Birdeye, Kolscan…) with the "Add or remove wallets" button on `wallets.html`. It opens a GitHub issue form; the `watchlist.yml` workflow adds the addresses to `data/watchlist.json`, scores them straight away, replies in the issue with the verdict and closes it. Only issues opened by the repository owner change the watchlist. Watchlist wallets are rescored daily with the other candidates, and the engine copies those that pass every check.

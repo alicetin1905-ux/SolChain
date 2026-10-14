@@ -1,0 +1,25 @@
+name: Watchlist
+description: Add wallets for the copy-trade engine to score, or remove them
+title: "Watchlist update"
+body:
+  - type: dropdown
+    id: action
+    attributes:
+      label: Action
+      options:
+        - Add
+        - Remove
+    validations:
+      required: true
+  - type: textarea
+    id: wallets
+    attributes:
+      label: Wallet addresses
+      description: One or more Solana wallet addresses. Put each on its own line, or separate them with spaces or commas.
+    validations:
+      required: true
+  - type: input
+    id: note
+    attributes:
+      label: Where you found them (optional)
+      placeholder: GMGN smart money

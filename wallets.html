@@ -22,6 +22,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="assets.css">
 <style>
+  .reason { font-size: 12px; color: var(--muted); }
+  a.btn { text-decoration: none; display: inline-block; }
   .flags { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; min-width: 10rem; }
   .pill.follow { color: var(--accent); border-color: currentColor; }
   .pill.ok { color: var(--gain); border-color: currentColor; }
@@ -44,11 +46,21 @@
     <div class="fig"><span class="fig-label">Best backtest</span><span class="fig-value" id="k-best">—</span><span class="fig-note" id="k-best-note">—</span></div>
   </section>
 
+  <section class="card" id="watchlist">
+    <div class="detail-head">
+      <h2>Your watchlist</h2>
+      <a class="btn" id="add-btn" href="https://github.com/alicetin1905-ux/SolChain/issues/new?template=watchlist.yml" target="_blank" rel="noopener">Add or remove wallets</a>
+    </div>
+    <p class="note">Found a wallet on GMGN, Birdeye, Kolscan or elsewhere? Paste it in the form. It is scored within a few minutes, you get the verdict as a reply in the form, and it is scored again every day. Wallets that pass every check are copied by the engine.</p>
+    <p class="note" id="watch-count"></p>
+  </section>
+
   <section class="card" id="scores">
     <h2>Scored wallets</h2>
     <p class="note">"Copy backtest" is what copying the wallet would have made over the window: 1 SOL into every token it bought, sold in the same shares as it sold, with slippage and fees, and anything left valued at today's price. Wallets that pass every check come first.</p>
     <div class="controls">
       <label class="toggle" for="only-pass"><input id="only-pass" type="checkbox"> Only wallets that pass</label>
+      <label class="toggle" for="only-watch"><input id="only-watch" type="checkbox"> Only my watchlist</label>
       <span class="count" id="count"></span>
     </div>
     <div class="scroll">
@@ -72,7 +84,7 @@
   <section class="card method" id="method">
     <h2>How wallets are judged</h2>
     <ul>
-      <li><b>Candidates.</b> The leaderboard's best non-bot wallets, the repeat early buyers, the wallets the engine follows now and last run's picks.</li>
+      <li><b>Candidates.</b> Your watchlist, the leaderboard's best non-bot wallets, the repeat early buyers, the wallets the engine follows now and last run's picks.</li>
       <li><b>History.</b> Up to <span id="m-txs">250</span> of each wallet's most recent transactions from the last <span id="m-days">30</span> days are read and its swaps worked out per token. Very active wallets therefore cover fewer days.</li>
       <li><b>Checks.</b> A wallet is copied only when it traded at least <span id="m-min-tokens">5</span> tokens, at least <span id="m-win">30%</span> of its copies would have made money, the copy backtest is positive, it makes no more than <span id="m-tx">150</span> transactions a day, and it usually holds a token for at least <span id="m-hold">60</span> seconds.</li>
       <li><b>Copying.</b> The engine follows the 10 best that pass, by backtest, plus up to 5 early buyers that pass. It drops a wallet whose live copies keep losing.</li>
@@ -95,9 +107,9 @@
   const dur = (s) => (s == null ? '—' : s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : s < 172800 ? `${d3.format('.1f')(s / 3600)} h` : `${Math.round(s / 86400)} d`);
   const tone = (el, v) => { el.classList.toggle('gain', v > 0); el.classList.toggle('loss', v < 0); return el; };
   const emptyRow = (tb, cols, text) => { const td = tb.insertRow().insertCell(); td.colSpan = cols; const d = document.createElement('div'); d.className = 'empty'; d.textContent = text; td.append(d); };
-  const SRC = { leaderboard: 'Leaderboard', early: 'Early buyer', followed: 'Already followed' };
+  const SRC = { leaderboard: 'Leaderboard', early: 'Early buyer', followed: 'Already followed', watchlist: 'Watchlist' };
 
-  let S = null, followed = new Set(), onlyPass = false;
+  let S = null, followed = new Set(), onlyPass = false, onlyWatch = false;
 
   function headline() {
     const rows = S.wallets, pass = rows.filter((r) => !r.flags.length);
@@ -121,11 +133,15 @@
     $('m-min-tokens').textContent = S.rules.minTokens; $('m-win').textContent = S.rules.minWinRatePct + '%';
     $('m-tx').textContent = S.rules.maxTxPerDay; $('m-hold').textContent = S.rules.minHoldSec;
     $('m-slip').textContent = d3.format('.0f')(S.slippagePct) + '%';
+    const watch = rows.filter((r) => r.source === 'watchlist');
+    $('watch-count').textContent = watch.length
+      ? `${watch.length} wallet${watch.length === 1 ? '' : 's'} on your watchlist, ${watch.filter((r) => !r.flags.length).length} passing every check.`
+      : 'Your watchlist is empty.';
   }
 
   function table() {
     const tb = document.querySelector('#score-table tbody'); tb.replaceChildren();
-    const rows = S.wallets.filter((r) => !onlyPass || !r.flags.length);
+    const rows = S.wallets.filter((r) => (!onlyPass || !r.flags.length) && (!onlyWatch || r.source === 'watchlist'));
     $('count').textContent = `${rows.length} wallets`;
     if (!rows.length) return emptyRow(tb, 9, 'No wallet passes every check in this run.');
     for (const r of rows) {
@@ -134,6 +150,7 @@
       if (isAddr(r.wallet)) { const a = document.createElement('a'); a.href = 'https://solscan.io/account/' + r.wallet; a.target = '_blank'; a.rel = 'noopener'; a.textContent = short(r.wallet); a.title = r.wallet; w.append(a); }
       else w.textContent = short(r.wallet);
       const src = tr.insertCell(); src.className = 'hide-narrow muted'; src.textContent = SRC[r.source] || r.source;
+      if (r.note) { const n2 = document.createElement('div'); n2.className = 'reason'; n2.textContent = r.note; src.append(n2); }
       const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
       tone(n(sol(r.copyPnlSol)), r.copyPnlSol);
       n(r.copyWinRatePct == null ? '—' : d3.format('.0f')(r.copyWinRatePct) + '%');
@@ -152,6 +169,7 @@
   }
 
   $('only-pass').addEventListener('change', (e) => { onlyPass = e.target.checked; if (S) table(); });
+  $('only-watch').addEventListener('change', (e) => { onlyWatch = e.target.checked; if (S) table(); });
   const get = (f) => fetch(`data/${f}.json?v=${Date.now()}`, { cache: 'no-store' }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
   Promise.all([get('scores'), get('paper').catch(() => null)])
     .then(([s, p]) => {

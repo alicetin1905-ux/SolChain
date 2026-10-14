@@ -12,6 +12,7 @@ Settings (environment):
   CANDIDATES     wallets to score per run (default 30)
   WALLET_TXS     transactions to read per wallet (default 250)
   DAYS           history window in days (default 30)
+  SCORE_ONLY     space-separated wallets to score now; their rows are merged into the existing scores
 """
 import collections, json, os, sys, time
 import paper as P
@@ -25,8 +26,16 @@ BOT_TXS_PER_DAY = 150   # more transactions a day than this looks like a bot
 MIN_HOLD_SEC = 60       # a median hold shorter than this can't be copied in time
 
 
+def watchlist():
+    """Wallets added by hand (data/watchlist.json, via the "Add wallets" form), always scored."""
+    try:
+        return json.load(open(f"{P.DATA}/watchlist.json"))
+    except FileNotFoundError:
+        return []
+
+
 def candidates():
-    out = []
+    out = [w["wallet"] for w in watchlist()]
     try:
         traders = json.load(open(f"{P.DATA}/traders.json"))
         out += [r["wallet"] for r in sorted((r for r in traders if r["botLike"] == "no"), key=lambda r: -r["pnlUsd"])[:CANDIDATES]]
@@ -120,7 +129,8 @@ def evaluate(wallet, swaps, tx_per_day, span_days, prices):
 
 def main():
     sp = P.sol_usd()
-    cands = candidates()
+    only = (os.environ.get("SCORE_ONLY") or "").split()
+    cands = only or candidates()
     print(f"scoring {len(cands)} wallets over {DAYS} days, up to {WALLET_TXS} transactions each", file=sys.stderr)
     hist = {}
     for i, w in enumerate(cands, 1):
@@ -136,11 +146,18 @@ def main():
     except FileNotFoundError:
         traders = set()
     early = set(P.early_buyers())
+    watched = {w["wallet"]: w for w in watchlist()}
     rows = []
     for w, (swaps, rate, span) in hist.items():
         r = evaluate(w, swaps, rate, span, prices)
-        r["source"] = "early" if w in early else "leaderboard" if w in traders else "followed"
+        r["source"] = "watchlist" if w in watched else "early" if w in early else "leaderboard" if w in traders else "followed"
+        if w in watched and watched[w].get("note"):
+            r["note"] = watched[w]["note"]
+        r["scoredAt"] = P.now_iso()
         rows.append(r)
+    if only:  # a quick run for a few wallets keeps everyone else's last score
+        prev = json.load(open(f"{P.DATA}/scores.json")).get("wallets", []) if os.path.exists(f"{P.DATA}/scores.json") else []
+        rows += [r for r in prev if r["wallet"] not in hist]
     rows.sort(key=lambda r: (bool(r["flags"]), -r["copyPnlSol"]))
     selected = [r["wallet"] for r in rows if not r["flags"]][:P.FOLLOW]
     json.dump({"updatedAt": P.now_iso(), "days": DAYS, "walletTxs": WALLET_TXS, "slippagePct": P.SLIP * 100, "feeSol": P.FEE_SOL,
