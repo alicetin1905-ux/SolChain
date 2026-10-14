@@ -8,13 +8,15 @@ While this runs, the hourly GitHub workflow skips its own check.
 
 Run from the repo root:  python3 scripts/live.py data
 """
-import asyncio, json, os, subprocess, sys, time, urllib.parse, urllib.request
+import asyncio, functools, http.server, json, os, subprocess, sys, threading, time, urllib.parse, urllib.request
 import websockets
 import paper as P
 
 JUP = "https://lite-api.jup.ag/swap/v1/quote"
 PUBLISH_EVERY = int(os.environ.get("PUBLISH_EVERY") or 600)  # seconds between commits to the site
 NO_GIT = os.environ.get("NO_GIT") == "1"  # for local tests: never commit or push
+LOCAL_EVERY = 60  # seconds between local writes, for the dashboard on this computer
+DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT") or 8787)  # http://localhost:8787/copy.html; 0 turns it off
 REFRESH_FOLLOW_EVERY = 3600  # seconds between re-reading the leaderboard
 POLL_SEC = int(os.environ.get("POLL_SEC") or 30)  # fallback when the RPC has no working websocket
 RETRY_WS_AFTER = 1800  # seconds in polling mode before trying the websocket again
@@ -68,7 +70,7 @@ def git_sync(commit):
         git("add", f"{P.DATA}/paper.json", P.STATE)
         if git("diff", "--cached", "--quiet").returncode != 0:
             git("commit", "-q", "-m", "Update paper copy-trade (live)")
-    r = git("pull", "-q", "--rebase", "origin", "main")
+    r = git("pull", "-q", "--rebase", "--autostash", "origin", "main")
     if r.returncode != 0:
         git("rebase", "--abort")
         log(f"git pull failed: {r.stderr.strip()[:200]}")
@@ -129,14 +131,17 @@ class Engine:
                 log(f"error on {sig[:10]}: {e}")
 
     async def publisher(self):
-        last_follow = time.time()
+        """Write the results locally every minute; commit them for the site every PUBLISH_EVERY seconds."""
+        last_follow = last_push = time.time()
         while True:
-            await asyncio.sleep(PUBLISH_EVERY)
+            await asyncio.sleep(LOCAL_EVERY)
             async with self.lock:
                 try:
                     self.sp = await asyncio.to_thread(P.sol_usd)
                     await asyncio.to_thread(P.publish, self.st, self.sp, self.top, "live")
-                    await asyncio.to_thread(git_sync, True)
+                    if time.time() - last_push >= PUBLISH_EVERY:
+                        last_push = time.time()
+                        await asyncio.to_thread(git_sync, True)
                 except Exception as e:
                     log(f"publish failed: {e}")
                 if time.time() - last_follow > REFRESH_FOLLOW_EVERY:
@@ -218,6 +223,29 @@ class Engine:
             await asyncio.sleep(5)
 
 
+def serve_dashboard():
+    """Serve the repo folder on this computer only, so copy.html shows the engine's latest local data."""
+    if not DASHBOARD_PORT:
+        return
+
+    class Quiet(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+    try:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", DASHBOARD_PORT), functools.partial(Quiet, directory=os.getcwd()))
+    except OSError as e:
+        log(f"dashboard not started: {e}")
+        return
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log(f"dashboard: http://localhost:{DASHBOARD_PORT}/copy.html")
+
+
 if __name__ == "__main__":
+    serve_dashboard()
     log(f"live paper engine starting; {P.FOLLOW} wallets, {P.TRADE_SOL} SOL per buy")
     asyncio.run(Engine().run())

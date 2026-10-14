@@ -35,7 +35,7 @@
 
   <section class="card" id="open">
     <h2>Open positions</h2>
-    <p class="note">Copies the engine still holds, valued at the current Dexscreener price. A position closes when the wallet it copies sells.</p>
+    <p class="note">Copies the engine still holds, revalued at live Dexscreener prices every 15 seconds while this page is open. A position closes when the wallet it copies sells.</p>
     <div class="scroll short">
       <table id="open-table">
         <thead><tr>
@@ -140,6 +140,48 @@
   const emptyRow = (tbody, cols, text) => { const td = tbody.insertRow().insertCell(); td.colSpan = cols; td.innerHTML = '<div class="empty"></div>'; td.firstChild.textContent = text; };
 
   let D = null;
+  let LIVE = null;  // live Dexscreener prices for open positions: {prices: Map(mint -> USD), solUsd, at}
+  const WSOL = 'So11111111111111111111111111111111111111112';
+  const STABLE = new Set(['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY5NNmFfeQe36Ci']);
+
+  async function livePrices() {
+    if (!D || !D.positions.length) return;
+    const mints = [...new Set(D.positions.map((p) => p.mint).filter(isAddr)), WSOL];
+    const prices = new Map(), liq = new Map();
+    let solUsd = null, solLiq = -1;
+    try {
+      for (let i = 0; i < mints.length; i += 30) {
+        const res = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints.slice(i, i + 30).join(',')}`);
+        if (!res.ok) return;
+        for (const p of await res.json()) {
+          const m = p.baseToken?.address, l = p.liquidity?.usd || 0, usd = Number(p.priceUsd);
+          if (!isFinite(usd)) continue;
+          if (m === WSOL) { if (STABLE.has(p.quoteToken?.address) && l > solLiq) { solUsd = usd; solLiq = l; } continue; }
+          if (l > (liq.get(m) ?? -1)) { prices.set(m, usd); liq.set(m, l); }
+        }
+      }
+    } catch (e) { return; }  // keep the last values
+    LIVE = { prices, solUsd, at: new Date() };
+    draw();
+  }
+
+  // Revalue open positions with the live prices; everything else stays as the engine published it.
+  function applyLive() {
+    if (!LIVE) return;
+    const sp = LIVE.solUsd || D.summary.solUsd;
+    let open = 0;
+    for (const p of D.positions) {
+      const usd = LIVE.prices.get(p.mint);
+      if (usd != null && p.qtyLeft != null) {
+        p.valueSol = p.qtyLeft * usd / sp;
+        p.pnlSol = p.realizedSol + p.valueSol - p.entrySol;
+      }
+      open += p.pnlSol;
+    }
+    D.summary.solUsd = sp;
+    D.summary.openPnlSol = open;
+    D.summary.totalPnlSol = D.summary.realizedSol + open;
+  }
 
   function headline() {
     const s = D.summary;
@@ -162,6 +204,7 @@
     $('mode').textContent = live
       ? `Live engine${s.medianLagSec != null ? ` · median delay ${d3.format('.0f')(s.medianLagSec)} s` : ''}`
       : 'Hourly check';
+    if (LIVE && D.positions.length) $('mode').textContent += ` · prices live ${d3.timeFormat('%H:%M:%S')(LIVE.at)}`;
     $('r-size').textContent = sol(s.tradeSol, 0);
     $('r-slip').textContent = d3.format('.0f')(s.slippagePct) + '%';
     $('r-fee').textContent = sol(s.feeSol);
@@ -171,6 +214,7 @@
     const box = $('chart');
     box.replaceChildren();
     const pts = D.equity.map((e) => ({ t: new Date(e.t), v: e.realizedSol + e.openPnlSol })).filter((p) => !isNaN(p.t));
+    if (LIVE && pts.length && LIVE.at > pts[pts.length - 1].t) pts.push({ t: LIVE.at, v: D.summary.totalPnlSol });
     if (pts.length < 2) { box.innerHTML = '<div class="empty">The line appears after two hourly checks.</div>'; return; }
     const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim();
     const W = box.clientWidth || 600, H = 260, m = { t: 12, r: 16, b: 26 };
@@ -272,17 +316,24 @@
     }
   }
 
-  function draw() { headline(); chart(); openTable(); walletTable(); closedTable(); tradeTable(); }
+  function draw() { applyLive(); headline(); chart(); openTable(); walletTable(); closedTable(); tradeTable(); }
 
-  fetch(`data/paper.json?v=${Date.now()}`, { cache: 'no-store' })
+  const load = () => fetch(`data/paper.json?v=${Date.now()}`, { cache: 'no-store' })
     .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then((d) => { D = d; draw(); })
-    .catch(() => {
+    .then((d) => {
+      const first = !D;
+      D = d; draw();
+      if (first) livePrices();
+    });
+  load().catch(() => {
       $('take').textContent = 'The simulation has not run yet. Its first hourly check starts tracking the wallets.';
       $('fresh').textContent = 'No data'; $('fresh').classList.add('stale');
       for (const id of ['open-table', 'wallet-table', 'closed-table', 'trade-table']) emptyRow(document.querySelector(`#${id} tbody`), 7, 'Waiting for the first check.');
       $('chart').innerHTML = '<div class="empty">Waiting for the first check.</div>';
     });
+  setInterval(() => load().catch(() => {}), 30000);   // new trades from the engine
+  setInterval(livePrices, 15000);                      // open positions at live prices
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { load().catch(() => {}); livePrices(); } });
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => D && chart(), 150); });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => D && chart());
 })();

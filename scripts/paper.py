@@ -265,7 +265,7 @@ def publish(st, sp, top, engine):
                "capitalInUseSol": round(sum(p["entrySol"] for p in positions), 2),
                "skippedLowLiquidity": st["skipped"],
                "medianLagSec": sorted(lags)[len(lags) // 2] if lags else None}
-    keep = ("wallet", "mint", "symbol", "openedAt", "entrySol", "entryPrice", "realizedSol", "pnlSol")
+    keep = ("wallet", "mint", "symbol", "openedAt", "entrySol", "entryPrice", "realizedSol", "pnlSol", "qtyLeft")
     pub = lambda p: {k: p[k] for k in keep if k in p} | (
         {"closedAt": p["closedAt"]} if "closedAt" in p else {"priceNow": p.get("priceNow"), "valueSol": round(p.get("valueSol", 0), 4)})
     json.dump({"summary": summary, "wallets": wallets, "positions": [pub(p) for p in positions],
