@@ -1,0 +1,39 @@
+name: Find early buyers
+
+on:
+  schedule:
+    - cron: "37 8 * * *"  # daily, after the leaderboard update
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-commit
+  cancel-in-progress: false
+
+jobs:
+  early:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Find wallets that bought pumped tokens early
+        env:
+          SOL_RPC: ${{ secrets.SOL_RPC }}
+          RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
+          MAX_TOKENS: "25"
+          BUYERS: "60"
+        run: python -u scripts/early.py data
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/early.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Update early buyers"
+          git pull --rebase origin main
+          git push

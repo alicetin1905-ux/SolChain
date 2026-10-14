@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SolChain Early Buyers</title>
+<meta name="description" content="Wallets that bought several pumped pump.fun tokens in their first minutes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets.css">
+<style>
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; min-width: 12rem; }
+  .chip { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--fg); white-space: nowrap; }
+  .chip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pill.follow { color: var(--accent); border-color: currentColor; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html">Copy-trade (paper)</a><a href="early.html" aria-current="page">Early buyers</a></nav>
+  <header class="head" id="overview">
+    <div class="eyebrow"><span>Solana · pump.fun launches</span><span class="live" id="fresh">Loading data</span></div>
+    <h1>Early buyers</h1>
+    <p class="take" id="take">Loading…</p>
+    <p class="when" id="when"></p>
+  </header>
+
+  <section class="tape" aria-label="Headline figures">
+    <div class="fig"><span class="fig-label">Pumped tokens analysed</span><span class="fig-value" id="k-tokens">—</span><span class="fig-note" id="k-tokens-note">—</span></div>
+    <div class="fig"><span class="fig-label">First buyers recorded</span><span class="fig-value" id="k-seen">—</span><span class="fig-note" id="k-seen-note">—</span></div>
+    <div class="fig"><span class="fig-label">Early in 2+ tokens</span><span class="fig-value" id="k-repeat">—</span><span class="fig-note" id="k-snipers">—</span></div>
+    <div class="fig"><span class="fig-label">Copied by the engine</span><span class="fig-value" id="k-follow">—</span><span class="fig-note"><a href="copy.html">See their copies</a></span></div>
+  </section>
+
+  <section class="card" id="wallets">
+    <h2>Repeat early buyers</h2>
+    <p class="note">Wallets among the first buyers of two or more of the tokens below. "×" is how much the price has multiplied since that wallet's own entry. Rank is the wallet's place in the order of buyers.</p>
+    <div class="controls">
+      <label class="toggle" for="hide-snipers"><input id="hide-snipers" type="checkbox" checked> Hide snipers</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="scroll">
+      <table id="wallet-table">
+        <thead><tr>
+          <th class="plain"><span>Wallet</span></th>
+          <th class="plain num"><span>Tokens</span></th>
+          <th class="plain"><span>Early in</span></th>
+          <th class="plain num"><span>Median ×</span></th>
+          <th class="plain num hide-narrow"><span>Best ×</span></th>
+          <th class="plain num hide-narrow"><span>Avg rank</span></th>
+          <th class="plain"><span>Status</span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="tokens">
+    <h2>Pumped tokens analysed</h2>
+    <p class="note">Recent pump.fun launches with a market cap of at least $300k, from Dexscreener's boosted, profiled and takeover tokens, GeckoTerminal's trending pools and the leaderboard's pairs. "Since launch" compares today's price with the first buyer's.</p>
+    <div class="scroll short">
+      <table id="token-table">
+        <thead><tr>
+          <th class="plain"><span>Token</span></th>
+          <th class="plain"><span>Launched</span></th>
+          <th class="plain num"><span>Market cap</span></th>
+          <th class="plain num"><span>Since launch</span></th>
+          <th class="plain num hide-narrow"><span>Buyers read</span></th>
+          <th class="plain num hide-narrow"><span>Curve trades</span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card method" id="method">
+    <h2>How this is worked out</h2>
+    <ul>
+      <li><b>Tokens.</b> Every pump.fun token starts on its own bonding curve before it moves to a regular pool. The first trades on that curve are the launch.</li>
+      <li><b>First buyers.</b> For each token, the first <span id="m-buyers">60</span> wallets that bought on the curve are recorded, in order, with their entry price. The token's creator is left out.</li>
+      <li><b>Snipers.</b> A buy in the launch block or the next one is flagged as a sniper or a bundle, often the creator's own wallets or bots. A wallet that sniped most of its tokens is hidden by default and never copied.</li>
+      <li><b>Copying.</b> The 5 best repeat early buyers that are not snipers are added to the copy-trade engine, next to the leaderboard's top 10.</li>
+      <li><b>Limits.</b> Tokens launched elsewhere than pump.fun, and tokens with more than 20,000 trades on their curve, are not analysed. Being early does not mean the wallet sold well; the copy-trade page shows what following it is worth.</li>
+    </ul>
+  </section>
+
+  <footer>Data: Solana RPC, Dexscreener public API, GeckoTerminal. Updated daily. Not financial advice.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+  const usd = (v) => (v == null || isNaN(v) ? '—' : '$' + (Math.abs(v) >= 10000 ? compact.format(v) : d3.format(',.0f')(v)));
+  const times = (v) => (v == null || !isFinite(v) ? '—' : '×' + (v >= 100 ? d3.format(',.0f')(v) : v >= 10 ? d3.format('.0f')(v) : d3.format('.1f')(v)));
+  const short = (w) => (w && w.length > 10 ? w.slice(0, 4) + '…' + w.slice(-4) : w || '—');
+  const isAddr = (w) => typeof w === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(w);
+  const when = (s) => { const d = new Date(s); return isNaN(d) ? '—' : d3.utcFormat('%b %-d, %H:%M')(d); };
+  const ago = (s) => { const m = Math.round((Date.now() - new Date(s)) / 60000); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const secs = (s) => (s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${d3.format('.1f')(s / 3600)} h`);
+  const link = (href, text) => { const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text; return a; };
+  const emptyRow = (tb, cols, text) => { const td = tb.insertRow().insertCell(); td.colSpan = cols; const d = document.createElement('div'); d.className = 'empty'; d.textContent = text; td.append(d); };
+
+  let E = null, followed = new Set(), hideSnipers = true;
+
+  function headline() {
+    const repeat = E.wallets.filter((w) => !w.sniper);
+    $('k-tokens').textContent = E.tokens.length;
+    $('k-tokens-note').textContent = `launched in the last ${E.maxAgeDays} days`;
+    $('k-seen').textContent = d3.format(',')(E.walletsSeen);
+    $('k-seen-note').textContent = `up to ${E.buyersPerToken} per token`;
+    $('k-repeat').textContent = d3.format(',')(repeat.length);
+    $('k-snipers').textContent = `plus ${E.wallets.length - repeat.length} sniper${E.wallets.length - repeat.length === 1 ? '' : 's'}`;
+    $('k-follow').textContent = followed.size;
+    $('m-buyers').textContent = E.buyersPerToken;
+    const best = repeat[0];
+    $('take').textContent = repeat.length
+      ? `${d3.format(',')(repeat.length)} wallets were among the first buyers of two or more of ${E.tokens.length} pumped tokens. The top one was early in ${best.tokens} of them, with a median ${times(best.medianMultiple)} since its entry.`
+      : `No wallet was early in more than one of the ${E.tokens.length} tokens analysed this time.`;
+    $('when').textContent = `Updated ${when(E.updatedAt)} UTC.`;
+    $('fresh').textContent = `Updated ${ago(E.updatedAt)}`;
+    $('fresh').classList.toggle('stale', (Date.now() - new Date(E.updatedAt)) / 3.6e6 > 30);
+  }
+
+  function walletTable() {
+    const tb = document.querySelector('#wallet-table tbody'); tb.replaceChildren();
+    const rows = E.wallets.filter((w) => !(hideSnipers && w.sniper));
+    $('count').textContent = `${d3.format(',')(rows.length)} wallets`;
+    if (!rows.length) return emptyRow(tb, 7, 'No repeat early buyers in this run.');
+    for (const w of rows) {
+      const tr = tb.insertRow();
+      const wc = tr.insertCell(); wc.className = 'data wallet';
+      if (isAddr(w.wallet)) { const a = link('https://solscan.io/account/' + w.wallet, short(w.wallet)); a.title = w.wallet; wc.append(a); } else wc.textContent = short(w.wallet);
+      const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
+      n(w.tokens);
+      const chips = tr.insertCell(); const box = document.createElement('div'); box.className = 'chips';
+      for (const h of w.hits) {
+        const c = document.createElement('span'); c.className = 'chip';
+        c.title = `Buyer #${h.rank}, ${secs(h.secAfterLaunch)} after launch, ${d3.format('.2f')(h.entrySol)} SOL${h.sniper ? ', sniper' : ''}`;
+        c.append(document.createTextNode(h.symbol + ' '));
+        const b = document.createElement('b'); b.textContent = times(h.multiple); c.append(b);
+        box.append(c);
+      }
+      chips.append(box);
+      n(times(w.medianMultiple)).classList.add('gain');
+      n(times(w.bestMultiple), 'hide-narrow');
+      n(d3.format('.0f')(w.avgRank), 'hide-narrow muted');
+      const st = tr.insertCell(); const pill = document.createElement('span');
+      pill.className = 'pill' + (followed.has(w.wallet) ? ' follow' : w.sniper ? ' bot' : '');
+      pill.textContent = followed.has(w.wallet) ? 'copied' : w.sniper ? 'sniper' : '—';
+      st.append(pill);
+    }
+  }
+
+  function tokenTable() {
+    const tb = document.querySelector('#token-table tbody'); tb.replaceChildren();
+    if (!E.tokens.length) return emptyRow(tb, 6, 'No tokens matched this run.');
+    for (const t of E.tokens.slice().sort((a, b) => (b.launchMultiple || 0) - (a.launchMultiple || 0))) {
+      const tr = tb.insertRow();
+      const s = tr.insertCell();
+      if (typeof t.url === 'string' && t.url.startsWith('https://dexscreener.com/')) s.append(link(t.url, t.symbol)); else s.textContent = t.symbol;
+      const l = tr.insertCell(); l.className = 'muted'; l.textContent = ago(t.launchAt);
+      const n = (txt, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = txt; return td; };
+      n(usd(t.mcapUsd));
+      n(times(t.launchMultiple)).classList.add('gain');
+      n(t.buyersAnalyzed, 'hide-narrow');
+      n(d3.format(',')(t.bondingTrades), 'hide-narrow muted');
+    }
+  }
+
+  function draw() { headline(); walletTable(); tokenTable(); }
+
+  $('hide-snipers').addEventListener('change', (e) => { hideSnipers = e.target.checked; if (E) walletTable(); });
+  const get = (f) => fetch(`data/${f}.json?v=${Date.now()}`, { cache: 'no-store' }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  Promise.all([get('early'), get('paper').catch(() => null)])
+    .then(([e, p]) => {
+      E = e;
+      if (p) followed = new Set(p.wallets.filter((w) => w.source === 'early' && w.following).map((w) => w.wallet));
+      draw();
+    })
+    .catch(() => {
+      $('take').textContent = 'The first early-buyer search has not finished yet. It runs once a day on GitHub.';
+      $('fresh').textContent = 'No data'; $('fresh').classList.add('stale');
+      emptyRow(document.querySelector('#wallet-table tbody'), 7, 'Waiting for the first run.');
+      emptyRow(document.querySelector('#token-table tbody'), 6, 'Waiting for the first run.');
+    });
+})();
+</script>
+</body>
+</html>

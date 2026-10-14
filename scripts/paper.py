@@ -7,6 +7,7 @@ and writes the result to data/paper.json for the site.
 Settings (environment):
   SOL_RPC        Solana RPC URL (falls back to the free public endpoint)
   FOLLOW         number of leaderboard wallets to follow (default 10)
+  EARLY_FOLLOW   number of repeat early buyers from data/early.json to follow too (default 5)
   TRADE_SOL      SOL per copied buy (default 1)
   SLIPPAGE_PCT   price penalty per fill for arriving after the leader (default 3)
   FEE_SOL        network + priority fee per fill (default 0.001)
@@ -19,6 +20,7 @@ DS = "https://api.dexscreener.com"
 WSOL = "So11111111111111111111111111111111111111112"
 STABLES = {"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY5NNmFfeQe36Ci"}
 FOLLOW = int(os.environ.get("FOLLOW") or 10)
+EARLY_FOLLOW = int(os.environ.get("EARLY_FOLLOW") or 5)
 TRADE_SOL = float(os.environ.get("TRADE_SOL") or 1)
 SLIP = float(os.environ.get("SLIPPAGE_PCT") or 3) / 100
 FEE_SOL = float(os.environ.get("FEE_SOL") or 0.001)
@@ -130,14 +132,27 @@ def load_state():
         return {"startedAt": now_iso(), "wallets": {}, "positions": [], "trades": [], "equity": [], "skipped": 0}
 
 
+def early_buyers():
+    """The best repeat early buyers from data/early.json (scripts/early.py), snipers left out."""
+    try:
+        early = json.load(open(f"{DATA}/early.json"))
+    except FileNotFoundError:
+        return []
+    return [w["wallet"] for w in early.get("wallets", []) if not w["sniper"] and w["tokens"] >= 2][:EARLY_FOLLOW]
+
+
 def follow_list(st):
-    """Top wallets from the leaderboard; marks who is followed and returns (top, wallets to watch)."""
+    """Leaderboard top wallets plus the best early buyers; marks who is followed and returns (top, wallets to watch)."""
     traders = json.load(open(f"{DATA}/traders.json"))
-    top = [r["wallet"] for r in sorted((r for r in traders if r["botLike"] == "no"), key=lambda r: -r["pnlUsd"])[:FOLLOW]]
+    board = [r["wallet"] for r in sorted((r for r in traders if r["botLike"] == "no"), key=lambda r: -r["pnlUsd"])[:FOLLOW]]
+    early = [w for w in early_buyers() if w not in board]
+    top = board + early
     for w in top:
         st["wallets"].setdefault(w, {"since": now_iso(), "lastSig": None})
     for w, info in st["wallets"].items():
         info["following"] = w in top
+        if w in top:
+            info["source"] = "early" if w in early else "leaderboard"
     holders = {p["wallet"] for p in st["positions"]}
     return top, list(dict.fromkeys(top + sorted(holders)))  # keep watching wallets we still hold a copy of
 
@@ -255,7 +270,7 @@ def publish(st, sp, top, engine):
         b["pnlSol"] += p["pnlSol"]; b["positions"] += 1
         if "closedAt" in p:
             b["closed"] += 1; b["wins"] += p["pnlSol"] > 0
-    wallets = [{"wallet": w, "following": i.get("following", False), "since": i["since"],
+    wallets = [{"wallet": w, "following": i.get("following", False), "since": i["since"], "source": i.get("source", "leaderboard"),
                 "pnlSol": round(by_wallet[w]["pnlSol"], 4), "positions": by_wallet[w]["positions"],
                 "closed": by_wallet[w]["closed"], "wins": by_wallet[w]["wins"]}
                for w, i in st["wallets"].items() if i.get("following") or w in by_wallet]
@@ -263,6 +278,7 @@ def publish(st, sp, top, engine):
     lags = [t["lagSec"] for t in st["trades"] if t.get("lagSec") is not None]
     summary = {"startedAt": st["startedAt"], "updatedAt": st["updatedAt"], "engine": engine, "solUsd": sp,
                "tradeSol": TRADE_SOL, "slippagePct": SLIP * 100, "feeSol": FEE_SOL, "following": len(top),
+               "followingEarly": sum(st["wallets"][w].get("source") == "early" for w in top),
                "realizedSol": round(realized, 4), "openPnlSol": round(unreal, 4), "totalPnlSol": round(realized + unreal, 4),
                "openPositions": len(positions), "closedPositions": len(closed),
                "winRatePct": round(100 * wins / len(closed), 1) if closed else None,

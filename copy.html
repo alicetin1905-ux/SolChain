@@ -12,10 +12,10 @@
 </head>
 <body>
 <div class="wrap">
-  <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html" aria-current="page">Copy-trade (paper)</a></nav>
+  <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html" aria-current="page">Copy-trade (paper)</a><a href="early.html">Early buyers</a></nav>
   <header class="head" id="overview">
     <div class="eyebrow"><span class="badge">Paper trading</span><span class="live" id="fresh">Loading data</span><span id="mode"></span></div>
-    <h1>Copy-trading the top 10</h1>
+    <h1>Copy-trading engine</h1>
     <p class="take" id="take">Loading the simulation…</p>
     <p class="when" id="when"></p>
   </header>
@@ -55,11 +55,12 @@
   <div class="row">
     <section class="card" id="wallets">
       <h2>Followed wallets</h2>
-      <p class="note">The top 10 non-bot wallets on the leaderboard. When the leaderboard changes, a wallet that drops out stops being copied, but its open copies still follow its sells.</p>
+      <p class="note">The top 10 non-bot wallets on the leaderboard, plus the best repeat early buyers from the <a href="early.html">Early buyers</a> page. When either list changes, a wallet that drops out stops being copied, but its open copies still follow its sells.</p>
       <div class="scroll short">
         <table id="wallet-table">
           <thead><tr>
             <th class="plain"><span>Wallet</span></th>
+            <th class="plain"><span>Source</span></th>
             <th class="plain"><span>Status</span></th>
             <th class="plain num"><span>Copies</span></th>
             <th class="plain num"><span>Won</span></th>
@@ -194,9 +195,10 @@
     $('k-capital').textContent = sol(s.capitalInUseSol, 0);
     $('k-skipped').textContent = `${s.skippedLowLiquidity} buy${s.skippedLowLiquidity === 1 ? '' : 's'} skipped for low liquidity`;
     const n = s.openPositions + s.closedPositions;
+    const who = s.followingEarly ? `${s.following} wallets (${s.following - s.followingEarly} from the leaderboard, ${s.followingEarly} early buyers)` : `the top ${s.following} wallets`;
     $('take').textContent = n
-      ? `Copying the top ${s.following} wallets with ${sol(s.tradeSol, 0)} per buy has made ${signedSol(s.totalPnlSol)} since ${when(s.startedAt)} UTC, across ${n} copied position${n === 1 ? '' : 's'}.`
-      : `Following the top ${s.following} wallets with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. No copies yet: a position opens the first time one of them buys a token with at least $25k liquidity.`;
+      ? `Copying ${who} with ${sol(s.tradeSol, 0)} per buy has made ${signedSol(s.totalPnlSol)} since ${when(s.startedAt)} UTC, across ${n} copied position${n === 1 ? '' : 's'}.`
+      : `Following ${who} with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. No copies yet: a position opens the first time one of them buys a token with at least $25k liquidity.`;
     $('when').textContent = `Prices and positions as of ${when(s.updatedAt)} UTC.`;
     $('fresh').textContent = `Checked ${ago(s.updatedAt)}`;
     const live = s.engine === 'live';
@@ -276,10 +278,11 @@
   function walletTable() {
     const tb = document.querySelector('#wallet-table tbody'); tb.replaceChildren();
     const rows = D.wallets.slice().sort((a, b) => (b.following - a.following) || (b.pnlSol - a.pnlSol));
-    if (!rows.length) return emptyRow(tb, 5, 'No wallets followed yet.');
+    if (!rows.length) return emptyRow(tb, 6, 'No wallets followed yet.');
     for (const w of rows) {
       const tr = tb.insertRow();
       walletCell(tr.insertCell(), w.wallet);
+      const src = tr.insertCell(); src.className = 'muted'; src.textContent = w.source === 'early' ? 'Early buyer' : 'Leaderboard';
       const s = tr.insertCell(); const pill = document.createElement('span'); pill.className = 'pill'; pill.textContent = w.following ? 'following' : 'dropped out'; s.append(pill);
       const n = (t) => { const td = tr.insertCell(); td.className = 'num'; td.textContent = t; return td; };
       n(w.positions); n(w.closed ? `${w.wins}/${w.closed}` : '—');
