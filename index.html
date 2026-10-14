@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SolChain Top Traders</title>
+<meta name="description" content="The most profitable wallets trading the hottest Solana pairs on Dexscreener, rebuilt from on-chain swaps.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a trading desk sheet. Header + four tape figures, a wide leaderboard, then wallet detail beside a per-token bar chart, then the pairs it was built from. */
+  :root {
+    --bg: #f3f5f7; --panel: #ffffff; --fg: #121a24; --muted: #5b6878; --line: #dfe4ea;
+    --accent: #0b6e78; --accent-soft: #e2f1f2; --gain: #0f7a45; --loss: #c0352b; --warn: #a15c00;
+    --hover: #f0f4f7; --shadow: 0 8px 24px rgba(18, 26, 36, .08);
+    --font-display: "Sora", "Segoe UI", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-data: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --radius: 10px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1219; --panel: #131b25; --fg: #e6ecf2; --muted: #8b98a8; --line: #233040;
+      --accent: #4cc7cf; --accent-soft: #15303a; --gain: #3ccf86; --loss: #ff6b5e; --warn: #f0a640;
+      --hover: #18222e; --shadow: 0 8px 24px rgba(0, 0, 0, .35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1219; --panel: #131b25; --fg: #e6ecf2; --muted: #8b98a8; --line: #233040;
+    --accent: #4cc7cf; --accent-soft: #15303a; --gain: #3ccf86; --loss: #ff6b5e; --warn: #f0a640;
+    --hover: #18222e; --shadow: 0 8px 24px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font-body);
+    padding-block: max(24px, env(safe-area-inset-top, 0px)) max(40px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .wrap { max-width: 1280px; margin-inline: auto; display: grid; gap: 28px; }
+
+  .head { display: grid; gap: 8px; }
+  .eyebrow { font: 500 12px/1 var(--font-data); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .live { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); letter-spacing: .04em; }
+  .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--gain); }
+  .live.stale::before { background: var(--warn); }
+  h1 { margin: 0; font: 600 clamp(28px, 4.2vw, 44px)/1.1 var(--font-display); letter-spacing: -.02em; text-wrap: balance; }
+  .take { margin: 0; max-width: 72ch; font-size: 16px; }
+  .when { margin: 0; color: var(--muted); font-size: 13px; }
+
+  .tape { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+  .fig { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 4px; align-content: start; }
+  .fig-label { font-size: 12px; color: var(--muted); letter-spacing: .02em; }
+  .fig-value { font: 600 28px/1.15 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .fig-note { font-size: 12px; color: var(--muted); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+  .card h2 { margin: 0; font: 600 18px/1.3 var(--font-display); }
+  .note { margin: 0; color: var(--muted); font-size: 13px; max-width: 85ch; }
+  .row { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; }
+  .search { font: inherit; font-size: 14px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); flex: 1 1 220px; max-width: 340px; min-width: 0; }
+  .toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+  .toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .count { font: 12px var(--font-data); color: var(--muted); }
+
+  .scroll { overflow: auto; max-height: 620px; border-top: 1px solid var(--line); }
+  .scroll.short { max-height: 420px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th { position: sticky; top: 0; z-index: 1; background: var(--panel); text-align: left; font: 500 12px/1 var(--font-body); color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; padding: 0; }
+  th button { all: unset; cursor: pointer; display: block; padding: 10px 10px; width: 100%; box-sizing: border-box; }
+  th button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  th[aria-sort] { color: var(--fg); }
+  th[aria-sort="descending"] button::after { content: " ↓"; }
+  th[aria-sort="ascending"] button::after { content: " ↑"; }
+  th.plain span { display: block; padding: 10px; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .num { text-align: right; }
+  .data { font-family: var(--font-data); font-size: 13px; }
+  .muted { color: var(--muted); }
+  .gain { color: var(--gain); }
+  .loss { color: var(--loss); }
+  .lead tbody tr { cursor: pointer; }
+  .lead tbody tr:hover td { background: var(--hover); }
+  .lead tbody tr[aria-selected="true"] td { background: var(--accent-soft); }
+  .wallet a { text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+  .wallet a:hover { text-decoration-color: currentColor; }
+  .bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+  .bar i { display: block; height: 6px; border-radius: 3px; background: var(--accent); opacity: .55; min-width: 1px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .pill.bot { color: var(--warn); border-color: currentColor; }
+
+  .detail-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; justify-content: space-between; }
+  .btn { font: inherit; font-size: 13px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+
+  .chart { position: relative; min-height: 320px; }
+  .chart svg text { font-family: var(--font-body); }
+  .tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 6px 10px; font-size: 12px; white-space: nowrap; z-index: 2; }
+  .tip .k { color: var(--muted); }
+
+  .method { font-size: 14px; }
+  .method ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 85ch; }
+  .method p { margin: 0; max-width: 85ch; }
+  .empty { padding: 32px 10px; text-align: center; color: var(--muted); font-size: 14px; }
+  .error-line { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); padding: 28px 0; font-size: 14px; }
+  .error-line::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--loss); }
+  footer { color: var(--muted); font-size: 12px; }
+
+  @media (max-width: 720px) { .hide-narrow { display: none; } .fig-value { font-size: 24px; } }
+  @media (prefers-reduced-motion: no-preference) { .lead tbody tr td { transition: background .15s ease-out; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head" id="overview">
+    <div class="eyebrow"><span>Solana · Dexscreener trending pairs</span><span class="live" id="fresh">Loading data</span></div>
+    <h1>SolChain top traders</h1>
+    <p class="take" id="take">Loading the latest snapshot…</p>
+    <p class="when" id="when"></p>
+  </header>
+
+  <section class="tape" id="headline" aria-label="Headline figures">
+    <div class="fig"><span class="fig-label">Top 25 traders, combined PnL</span><span class="fig-value" id="k-top25">—</span><span class="fig-note">Bot-like wallets left out</span></div>
+    <div class="fig"><span class="fig-label">Best wallet PnL</span><span class="fig-value" id="k-best">—</span><span class="fig-note data" id="k-best-wallet">—</span></div>
+    <div class="fig"><span class="fig-label">Wallets analysed</span><span class="fig-value" id="k-wallets">—</span><span class="fig-note"><span id="k-bots">—</span> flagged bot-like</span></div>
+    <div class="fig"><span class="fig-label">Swaps decoded</span><span class="fig-value" id="k-swaps">—</span><span class="fig-note">on <span id="k-pairs">—</span> pairs</span></div>
+  </section>
+
+  <section class="card" id="leaderboard">
+    <h2>Leaderboard</h2>
+    <p class="note">Ranked by PnL: what a wallet received from sells, minus what it paid on buys, plus the tokens it still holds from this window at the current price. Click a wallet to see its trades by token.</p>
+    <div class="controls">
+      <input id="search" class="search" type="search" placeholder="Search wallet or token" aria-label="Search wallet or token">
+      <label class="toggle" for="hide-bots"><input id="hide-bots" type="checkbox" checked> Hide bot-like wallets</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="scroll">
+      <table class="lead" id="lead">
+        <thead><tr>
+          <th class="num"><button type="button" data-sort="rank">#</button></th>
+          <th><button type="button" data-sort="wallet">Wallet</button></th>
+          <th class="num"><button type="button" data-sort="pnlUsd">PnL</button></th>
+          <th class="num"><button type="button" data-sort="roiPct">PnL / volume</button></th>
+          <th class="num hide-narrow"><button type="button" data-sort="volumeUsd">Volume</button></th>
+          <th class="num hide-narrow"><button type="button" data-sort="trades">Trades</button></th>
+          <th class="num hide-narrow"><button type="button" data-sort="tokens">Tokens</button></th>
+          <th class="num hide-narrow"><button type="button" data-sort="winRatePct">Win rate</button></th>
+          <th><button type="button" data-sort="bestToken">Best token</button></th>
+          <th class="hide-narrow"><button type="button" data-sort="botLike">Bot-like</button></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="row">
+    <section class="card" id="wallet-detail">
+      <div class="detail-head">
+        <h2>Wallet <span class="data" id="sel">—</span></h2>
+        <button type="button" class="btn" id="copy">Copy address</button>
+      </div>
+      <p class="note">Each token this wallet traded in the window. <a id="solscan" href="https://solscan.io" target="_blank" rel="noopener">Open on Solscan</a></p>
+      <div class="scroll short">
+        <table id="pos">
+          <thead><tr>
+            <th class="plain"><span>Token</span></th>
+            <th class="plain num"><span>Buys</span></th>
+            <th class="plain num"><span>Sells</span></th>
+            <th class="plain num"><span>Bought</span></th>
+            <th class="plain num"><span>Sold</span></th>
+            <th class="plain num"><span>PnL</span></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="by-token">
+      <h2>Where the top 25 made money</h2>
+      <p class="note">Combined PnL of the 25 best non-bot wallets, split by the token it came from.</p>
+      <div class="chart" id="chart"></div>
+    </section>
+  </div>
+
+  <section class="card" id="pairs">
+    <h2>Pairs tracked</h2>
+    <p class="note">The highest-volume Solana pairs among Dexscreener's boosted, profiled and community-takeover tokens plus GeckoTerminal's trending pools, with at least $25k liquidity and $100k 24h volume. Prices refresh live from Dexscreener every minute. "Window" is how far back the decoded swaps reach on that pair.</p>
+    <div class="scroll short">
+      <table id="pairs-table">
+        <thead><tr>
+          <th class="plain"><span>Token</span></th>
+          <th class="plain hide-narrow"><span>DEX</span></th>
+          <th class="plain num"><span>Price</span></th>
+          <th class="plain num"><span>24h</span></th>
+          <th class="plain num"><span>24h volume</span></th>
+          <th class="plain num hide-narrow"><span>Liquidity</span></th>
+          <th class="plain num hide-narrow"><span>Swaps</span></th>
+          <th class="plain num"><span>Window</span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card method" id="method">
+    <h2>How this is worked out</h2>
+    <p>Dexscreener's own Top Traders tab is not available through its public API, so this site rebuilds it from the chain. A GitHub Action reruns the collector every few hours and commits fresh data.</p>
+    <ul>
+      <li><b>Pairs.</b> Token lists and prices come from Dexscreener's public API. Each token's deepest SOL, USDC or USDT pair is used.</li>
+      <li><b>Swaps.</b> The latest transactions on each pair's pool account are read from Solana RPC. A swap is a transaction where the signing wallet's token balance and its SOL, USDC or USDT balance move in opposite directions, valued in dollars at the current SOL price. Network fees and refundable token-account rent are left out. Swaps routed through another token and swaps under $1 are skipped.</li>
+      <li><b>PnL.</b> Sells received minus buys paid, plus the net tokens bought in the window valued at the price when the snapshot was taken. A wallet that sold tokens it bought before the window is credited for selling above that price.</li>
+      <li><b>Bot-like.</b> A wallet is flagged when it bought and sold the same token in one slot (a sandwich pattern) or made 40 or more trades in the window. These wallets are hidden by default and get no rank.</li>
+      <li><b>Window.</b> Each pair contributes its latest transactions. Hot pairs fill that in minutes, so this is a short-term snapshot, not a 24-hour or all-time ranking.</li>
+    </ul>
+  </section>
+
+  <footer>Data: Dexscreener public API, GeckoTerminal, Solana RPC. Not financial advice.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(function () {
+  const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+  const usd = (v) => {
+    if (v == null || isNaN(v)) return '—';
+    const a = Math.abs(v), s = v < 0 ? '−' : '';
+    return s + '$' + (a >= 10000 ? compact.format(a) : d3.format(',.0f')(a));
+  };
+  const signedUsd = (v) => (v > 0 ? '+' : '') + usd(v);
+  const pct = (v) => (v == null || isNaN(v) ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + d3.format(',.1f')(Math.abs(v)) + '%');
+  const price = (v) => (!isFinite(v) || v <= 0 ? '—' : v >= 1 ? '$' + d3.format(',.2f')(v) : '$' + v.toFixed(Math.min(12, 3 - Math.floor(Math.log10(v)))));
+  const short = (w) => (w && w.length > 10 ? w.slice(0, 4) + '…' + w.slice(-4) : w || '—');
+  const isAddr = (w) => typeof w === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(w);
+  const when = (s) => { const d = new Date(s); return isNaN(d) ? '—' : d3.utcFormat('%b %-d, %H:%M')(d) + ' UTC'; };
+  const ago = (s) => { const m = Math.round((Date.now() - new Date(s)) / 60000); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const tone = (el, v) => { el.classList.toggle('gain', v > 0); el.classList.toggle('loss', v < 0); };
+  const $ = (id) => document.getElementById(id);
+
+  const st = { sort: 'pnlUsd', dir: -1, q: '', hideBots: true, selected: null };
+  let D = null;
+
+  async function load() {
+    const get = (f) => fetch(`data/${f}.json?v=${Date.now()}`, { cache: 'no-store' }).then((r) => { if (!r.ok) throw new Error(f + ' ' + r.status); return r.json(); });
+    try {
+      const [run, traders, positions, pairs] = await Promise.all(['run', 'traders', 'positions', 'pairs'].map(get));
+      D = { run: run[0], traders, positions, pairs };
+      draw();
+      livePrices();
+    } catch (e) {
+      $('take').textContent = 'The data files did not load. If this site was just set up, the first collector run may still be in progress.';
+      $('fresh').textContent = 'No data'; $('fresh').classList.add('stale');
+      document.querySelector('#lead tbody').innerHTML = '<tr><td colspan="10"><div class="error-line">Failed to load</div></td></tr>';
+    }
+  }
+
+  const humans = () => D.traders.filter((r) => r.botLike === 'no').sort((a, b) => b.pnlUsd - a.pnlUsd);
+
+  function headline() {
+    const r = D.run, h = humans(), top = h.slice(0, 25), best = h[0];
+    const total = d3.sum(top, (x) => x.pnlUsd);
+    $('k-top25').textContent = signedUsd(total); tone($('k-top25'), total);
+    $('k-best').textContent = best ? signedUsd(best.pnlUsd) : '—'; if (best) tone($('k-best'), best.pnlUsd);
+    $('k-best-wallet').textContent = best ? short(best.wallet) : '—';
+    $('k-wallets').textContent = d3.format(',')(r.walletsSeen);
+    $('k-bots').textContent = d3.format(',')(r.botLikeWallets);
+    $('k-swaps').textContent = d3.format(',')(r.swapsParsed);
+    $('k-pairs').textContent = r.pairsTracked;
+    $('take').textContent = best
+      ? `The best non-bot wallet made ${usd(best.pnlUsd)} across ${best.tokens} token${best.tokens === 1 ? '' : 's'}, mostly on ${best.bestToken}. The top 25 made ${usd(total)} between them.`
+      : 'No wallets in this snapshot.';
+    $('when').textContent = `Swaps from ${when(r.windowStart)} to ${when(r.windowEnd)}.`;
+    const hours = (Date.now() - new Date(r.snapshotAt)) / 3.6e6;
+    $('fresh').textContent = `Updated ${ago(r.snapshotAt)}`;
+    $('fresh').classList.toggle('stale', hours > 8);
+  }
+
+  function leaderboard() {
+    const tbody = document.querySelector('#lead tbody');
+    tbody.replaceChildren();
+    let rows = D.traders.slice();
+    if (st.hideBots) rows = rows.filter((r) => r.botLike === 'no');
+    if (st.q) { const q = st.q.toLowerCase(); rows = rows.filter((r) => r.wallet.toLowerCase().includes(q) || String(r.bestToken).toLowerCase().includes(q)); }
+    const k = st.sort;
+    rows.sort((a, b) => {
+      const x = a[k], y = b[k];
+      if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))) * st.dir;
+    });
+    $('count').textContent = `${d3.format(',')(rows.length)} wallets`;
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10"><div class="empty">No wallets match this search.</div></td></tr>'; }
+    const maxAbs = d3.max(D.traders, (r) => Math.abs(r.pnlUsd)) || 1;
+    for (const r of rows) {
+      const tr = tbody.insertRow();
+      tr.dataset.key = r.wallet; tr.tabIndex = 0;
+      tr.setAttribute('aria-selected', String(r.wallet === st.selected));
+      const c = (cls) => { const td = tr.insertCell(); if (cls) td.className = cls; return td; };
+      c('num muted data').textContent = r.rank == null ? '—' : r.rank;
+      const w = c('wallet data');
+      if (isAddr(r.wallet)) {
+        const a = document.createElement('a');
+        a.href = 'https://solscan.io/account/' + r.wallet; a.target = '_blank'; a.rel = 'noopener';
+        a.textContent = short(r.wallet); a.title = r.wallet;
+        a.addEventListener('click', (e) => e.stopPropagation());
+        w.append(a);
+      } else w.textContent = short(r.wallet);
+      const p = c('num');
+      const bar = document.createElement('span'); bar.className = 'bar';
+      const i = document.createElement('i'); i.style.width = Math.max(1, 56 * Math.abs(r.pnlUsd) / maxAbs) + 'px';
+      const v = document.createElement('span'); v.textContent = signedUsd(r.pnlUsd); tone(v, r.pnlUsd);
+      bar.append(i, v); p.append(bar);
+      const roi = c('num'); roi.textContent = pct(r.roiPct); tone(roi, r.roiPct);
+      c('num hide-narrow').textContent = usd(r.volumeUsd);
+      c('num hide-narrow').textContent = r.trades;
+      c('num hide-narrow').textContent = r.tokens;
+      c('num hide-narrow').textContent = d3.format('.0f')(r.winRatePct) + '%';
+      c().textContent = r.bestToken;
+      const b = c('hide-narrow'); const pill = document.createElement('span'); pill.className = 'pill' + (r.botLike === 'yes' ? ' bot' : ''); pill.textContent = r.botLike; b.append(pill);
+    }
+    document.querySelectorAll('#lead th').forEach((th) => {
+      const key = th.querySelector('button').dataset.sort;
+      if (key === st.sort) th.setAttribute('aria-sort', st.dir < 0 ? 'descending' : 'ascending'); else th.removeAttribute('aria-sort');
+    });
+    return rows;
+  }
+
+  function detail() {
+    const w = st.selected;
+    $('sel').textContent = short(w); $('sel').title = w || '';
+    $('solscan').href = isAddr(w) ? 'https://solscan.io/account/' + w : 'https://solscan.io';
+    const body = document.querySelector('#pos tbody');
+    body.replaceChildren();
+    if (!w) { body.innerHTML = '<tr><td colspan="6"><div class="empty">Pick a wallet in the leaderboard.</div></td></tr>'; return; }
+    const rows = D.positions.filter((p) => p.wallet === w).sort((a, b) => b.pnlUsd - a.pnlUsd);
+    for (const r of rows) {
+      const tr = body.insertRow();
+      tr.insertCell().textContent = r.token;
+      const n = (t) => { const td = tr.insertCell(); td.className = 'num'; td.textContent = t; return td; };
+      n(r.buys); n(r.sells); n(usd(r.buyUsd)); n(usd(r.sellUsd));
+      tone(n(signedUsd(r.pnlUsd)), r.pnlUsd);
+    }
+  }
+
+  function tokenPnl() {
+    const top = new Set(humans().slice(0, 25).map((r) => r.wallet));
+    const by = d3.rollups(D.positions.filter((p) => top.has(p.wallet)), (v) => ({ pnlUsd: d3.sum(v, (p) => p.pnlUsd), wallets: v.length }), (p) => p.token);
+    return by.map(([token, v]) => ({ token, ...v })).sort((a, b) => b.pnlUsd - a.pnlUsd);
+  }
+
+  function chart() {
+    const box = $('chart');
+    box.replaceChildren();
+    const rows = tokenPnl().slice(0, 12);
+    if (!rows.length) { box.innerHTML = '<div class="empty">No positions yet.</div>'; return; }
+    const css = getComputedStyle(document.documentElement);
+    const col = (n) => css.getPropertyValue(n).trim();
+    const W = box.clientWidth || 400, barH = 22, gap = 8, H = rows.length * (barH + gap) + 26;
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'Top 25 PnL by token');
+    const probe = svg.append('text').attr('font-size', 12);
+    const measure = (t) => { probe.text(t); return probe.node().getComputedTextLength(); };
+    const left = (d3.max(rows, (r) => measure(r.token)) || 40) + 12;
+    const right = (d3.max(rows, (r) => measure(signedUsd(r.pnlUsd))) || 40) + 12;
+    probe.remove();
+    const lo = Math.min(0, d3.min(rows, (r) => r.pnlUsd)), hi = Math.max(0, d3.max(rows, (r) => r.pnlUsd));
+    const x = d3.scaleLinear([lo, hi || 1], [left, Math.max(left + 40, W - right)]).nice();
+    const ticks = x.ticks(W < 420 ? 3 : 4);
+    svg.append('g').selectAll('line').data(ticks).join('line')
+      .attr('x1', (t) => x(t)).attr('x2', (t) => x(t)).attr('y1', 0).attr('y2', H - 22)
+      .attr('stroke', (t) => (t === 0 ? col('--muted') : col('--line'))).attr('stroke-width', 1);
+    svg.append('g').selectAll('text').data(ticks).join('text')
+      .attr('x', (t) => x(t)).attr('y', H - 6).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', col('--muted')).text((t) => usd(t));
+    const g = svg.append('g').selectAll('g').data(rows).join('g').attr('transform', (r, i) => `translate(0,${i * (barH + gap)})`);
+    g.append('text').attr('x', left - 8).attr('y', barH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').attr('font-size', 12).attr('fill', col('--fg')).text((r) => r.token);
+    g.append('rect').attr('x', (r) => Math.min(x(0), x(r.pnlUsd))).attr('height', barH).attr('rx', 4)
+      .attr('width', (r) => Math.max(1, Math.abs(x(r.pnlUsd) - x(0))))
+      .attr('fill', (r, i) => (r.pnlUsd < 0 ? col('--loss') : col('--accent'))).attr('fill-opacity', (r, i) => (i === 0 || r.pnlUsd < 0 ? 1 : 0.45));
+    g.append('text').attr('x', (r) => (r.pnlUsd < 0 ? x(0) + 6 : x(r.pnlUsd) + 6)).attr('y', barH / 2).attr('dy', '0.35em').attr('font-size', 12)
+      .attr('fill', col('--muted')).style('font-variant-numeric', 'tabular-nums').text((r) => signedUsd(r.pnlUsd));
+    const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; box.append(tip);
+    g.append('rect').attr('y', -gap / 2).attr('width', W).attr('height', barH + gap).attr('fill', 'transparent')
+      .on('pointermove', (event, r) => {
+        tip.replaceChildren();
+        const k = document.createElement('div'); k.className = 'k'; k.textContent = r.token;
+        const v = document.createElement('div'); v.textContent = `${signedUsd(r.pnlUsd)} from ${r.wallets} wallet${r.wallets === 1 ? '' : 's'}`;
+        tip.append(k, v); tip.hidden = false;
+        const [mx, my] = d3.pointer(event, box);
+        tip.style.left = Math.max(0, Math.min(box.clientWidth - tip.offsetWidth, mx + 12)) + 'px';
+        tip.style.top = my + 12 + 'px';
+      })
+      .on('pointerleave', () => { tip.hidden = true; });
+  }
+
+  function pairs() {
+    const body = document.querySelector('#pairs-table tbody');
+    body.replaceChildren();
+    for (const r of D.pairs.slice().sort((a, b) => b.volume24hUsd - a.volume24hUsd)) {
+      const tr = body.insertRow();
+      const s = tr.insertCell();
+      if (typeof r.url === 'string' && r.url.startsWith('https://dexscreener.com/')) {
+        const a = document.createElement('a'); a.href = r.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = r.symbol; s.append(a);
+      } else s.textContent = r.symbol;
+      const dx = tr.insertCell(); dx.className = 'hide-narrow muted'; dx.textContent = `${r.dex} · ${r.quote}`;
+      const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
+      n(price(r.priceUsd));
+      tone(n(pct(r.change24hPct)), r.change24hPct);
+      n(usd(r.volume24hUsd));
+      n(usd(r.liquidityUsd), 'hide-narrow');
+      n(d3.format(',')(r.swapsSampled), 'hide-narrow');
+      n(r.windowMinutes >= 120 ? d3.format('.1f')(r.windowMinutes / 60) + ' h' : d3.format('.0f')(r.windowMinutes) + ' min');
+    }
+  }
+
+  // Live prices and 24h stats for the tracked pairs, straight from Dexscreener (CORS-enabled public API).
+  async function livePrices() {
+    try {
+      const ids = D.pairs.map((p) => p.pair).join(',');
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/solana/${ids}`);
+      if (!res.ok) return;
+      const live = (await res.json()).pairs || [];
+      const by = new Map(live.map((p) => [p.pairAddress, p]));
+      for (const p of D.pairs) {
+        const l = by.get(p.pair); if (!l) continue;
+        p.priceUsd = Number(l.priceUsd); p.volume24hUsd = l.volume?.h24 ?? p.volume24hUsd;
+        p.liquidityUsd = l.liquidity?.usd ?? p.liquidityUsd; p.change24hPct = l.priceChange?.h24 ?? p.change24hPct;
+      }
+      pairs();
+    } catch (e) { /* keep snapshot values */ }
+  }
+
+  function draw() {
+    if (!D) return;
+    headline();
+    const rows = leaderboard();
+    if (!st.selected || !rows.some((r) => r.wallet === st.selected)) st.selected = rows[0] ? rows[0].wallet : null;
+    document.querySelectorAll('#lead tbody tr').forEach((tr) => tr.setAttribute('aria-selected', String(tr.dataset.key === st.selected)));
+    detail(); chart(); pairs();
+  }
+
+  const tbody = document.querySelector('#lead tbody');
+  const pick = (tr) => { if (!tr || !tr.dataset.key) return; st.selected = tr.dataset.key; tbody.querySelectorAll('tr').forEach((r) => r.setAttribute('aria-selected', String(r === tr))); detail(); };
+  tbody.addEventListener('click', (e) => pick(e.target.closest('tr')));
+  tbody.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e.target.closest('tr')); } });
+  $('search').addEventListener('input', (e) => { st.q = e.target.value.trim(); draw(); });
+  $('hide-bots').addEventListener('change', (e) => { st.hideBots = e.target.checked; draw(); });
+  document.querySelectorAll('#lead th button').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.sort;
+    if (st.sort === k) st.dir = -st.dir; else { st.sort = k; st.dir = ['rank', 'wallet', 'bestToken', 'botLike'].includes(k) ? 1 : -1; }
+    draw();
+  }));
+  $('copy').addEventListener('click', async () => {
+    const btn = $('copy'); if (!st.selected) return;
+    try { await navigator.clipboard.writeText(st.selected); btn.textContent = 'Copied'; }
+    catch { const el = $('sel'); el.textContent = st.selected; const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = 'Press Ctrl+C'; }
+    setTimeout(() => { btn.textContent = 'Copy address'; }, 1600);
+  });
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => D && chart(), 150); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => D && chart());
+  setInterval(() => D && livePrices(), 60000);
+
+  load();
+})();
+</script>
+</body>
+</html>
