@@ -18,6 +18,11 @@ if [ ! -f "$HOME/.solchain.env" ]; then
   (umask 077; printf 'SOL_RPC=%q\n' "$RPC" > "$HOME/.solchain.env")
 fi
 
+if ! grep -q '^NTFY_TOPIC=' "$HOME/.solchain.env"; then
+  read -rp "ntfy topic for phone notifications (Enter to skip): " TOPIC
+  [ -n "$TOPIC" ] && printf 'NTFY_TOPIC=%q\n' "$TOPIC" >> "$HOME/.solchain.env"
+fi
+
 echo "3/4 GitHub access"
 command -v gh >/dev/null && gh auth setup-git >/dev/null 2>&1 || true
 git -C "$REPO" config user.name >/dev/null || git -C "$REPO" config user.name "SolChain live engine"

@@ -30,3 +30,7 @@ The engine keeps the Mac from sleeping while it runs, but a MacBook still sleeps
 ## How it reacts
 
 It subscribes to each wallet over the RPC's websocket and also polls every 5 minutes as a safety net. If the RPC refuses websocket subscriptions, it polls every 30 seconds instead (set `POLL_SEC` in `~/.solchain.env` to change that).
+
+## Phone notifications
+
+The engine can push a notification for every copied buy, every closed copy with its result, every take-profit, and a daily summary at 21:00, through [ntfy](https://ntfy.sh). Install the ntfy app, subscribe to a topic with a long random name (anyone who knows the name can read the messages), and give that name to `install.sh` when it asks for the ntfy topic. To add it later: `echo 'NTFY_TOPIC=your-topic' >> ~/.solchain.env && ./mac/install.sh`.

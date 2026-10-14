@@ -12,6 +12,7 @@ Settings (environment):
   DROP_AFTER     stop following a wallet once this many copies closed at a net loss (default 10)
   CHASE_PCT      skip a copy when the live price is this much above the wallet's own (default 15)
   TOP10_MAX_PCT  skip tokens whose 10 largest holders, pool left out, own more than this (default 40)
+  NTFY_TOPIC     ntfy.sh topic for phone notifications (keep it secret: anyone with the name can read them)
   TRADE_SOL      SOL per copied buy (default 1)
   SLIPPAGE_PCT   price penalty per fill for arriving after the leader (default 3)
   FEE_SOL        network + priority fee per fill (default 0.001)
@@ -32,6 +33,12 @@ MIN_LIQ_USD = 25_000
 DROP_AFTER = int(os.environ.get("DROP_AFTER") or 10)
 CHASE = float(os.environ.get("CHASE_PCT") or 15) / 100
 TOP10_MAX = float(os.environ.get("TOP10_MAX_PCT") or 40) / 100
+
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC") or ""
+NTFY_SERVER = os.environ.get("NTFY_SERVER") or "https://ntfy.sh"
+SITE = os.environ.get("SITE_URL") or "https://alicetin1905-ux.github.io/SolChain/copy.html"
+RECENT_SEC = 1800  # trades older than this (caught up after downtime) are summed up, not sent one by one
+OUTBOX = []
 
 # Every copied buy is followed in each of these exit strategies side by side, 1 position each.
 STRATEGIES = {
@@ -150,6 +157,33 @@ def parse_swap(tx, wallet, sol_price):
     if d[mint] * dsol >= 0 or abs(dsol) < 0.01:
         return None  # not a buy or sell against SOL/stables, or too small to matter
     return {"mint": mint, "dtok": d[mint], "sol": abs(dsol), "pre": pre_bal[mint], "decimals": decimals.get(mint)}
+
+
+def short(w):
+    return f"{w[:4]}…{w[-4:]}"
+
+
+def notify(title, message, tags=(), priority=3):
+    if NTFY_TOPIC:
+        OUTBOX.append({"title": title, "message": message, "tags": list(tags), "priority": priority})
+
+
+def flush_notifications():
+    """Send queued phone notifications through ntfy; a burst is cut to the first few and a count."""
+    msgs = OUTBOX[:]
+    OUTBOX.clear()
+    if not msgs or not NTFY_TOPIC:
+        return
+    if len(msgs) > 6:
+        msgs = msgs[:5] + [{"title": f"{len(msgs) - 5} more SolChain updates", "message": "Open the app to see them all.", "tags": ["bell"], "priority": 2}]
+    for m in msgs:
+        body = json.dumps({"topic": NTFY_TOPIC, "click": SITE, **m}).encode()
+        try:
+            req = urllib.request.Request(NTFY_SERVER, data=body, headers={"content-type": "application/json", "user-agent": "solchain/1.0"})
+            urllib.request.urlopen(req, timeout=10, context=SSL_CTX).close()
+        except Exception as e:
+            print(f"  notification not sent: {e}", file=sys.stderr)
+            return
 
 
 def load_state():
@@ -291,12 +325,20 @@ def sell(st, p, q, px, when, src, reason, frac=None, lag=None, sig=None):
     st["trades"].append({"time": now_iso(when), "wallet": p["wallet"], "symbol": p["symbol"], "mint": p["mint"],
                          "strategy": p["strategy"], "side": "sell", "reason": reason, "sol": round(got, 4), "price": px,
                          "fraction": round(frac, 3) if frac is not None else None, "fill": src, "lagSec": lag, "leaderSig": sig})
+    recent = time.time() - when < RECENT_SEC
     if p["qtyLeft"] <= p["qty"] * 0.001:
         p["closedAt"] = now_iso(when)
         p["closeReason"] = reason
         p["pnlSol"] = p["realizedSol"] - p["entrySol"]
         st.setdefault("closed", []).append(p)
+        if recent and p["strategy"] == "follow":
+            pnl = p["pnlSol"]
+            notify(f"Closed {p['symbol']} {pnl:+.3f} SOL ({100 * pnl / p['entrySol']:+.0f}%)",
+                   f"The wallet {short(p['wallet'])} sold, so the copy did too.",
+                   ["chart_with_upwards_trend" if pnl > 0 else "chart_with_downwards_trend"])
         return True
+    if recent and reason == "take-profit":
+        notify(f"{p['symbol']} doubled", f"The \"2x then trail\" strategy sold half for {got:.3f} SOL.", ["moneybag"])
     return False
 
 
@@ -341,6 +383,12 @@ def apply_events(st, events, info, fill=model_fill):
                 continue
             qty = (TRADE_SOL - FEE_SOL) / px
             sym = ti.get("symbol") or mint[:4] + "…"
+            if time.time() - ev["time"] < RECENT_SEC:
+                src_name = {"scored": "scored wallet", "early": "early buyer"}.get(st["wallets"][w].get("source"), "wallet")
+                notify(f"Copied a buy: {sym}", f"{TRADE_SOL:g} SOL per strategy, copying {src_name} {short(w)}"
+                       + (f", {lag:.0f} s after it." if lag is not None else "."), ["green_circle"])
+            else:
+                st["caughtUp"] = st.get("caughtUp", 0) + 1
             for strat in STRATEGIES:
                 open_pos[(w, mint, strat)] = {"wallet": w, "mint": mint, "symbol": sym, "strategy": strat,
                                               "openedAt": now_iso(ev["time"]), "entrySol": TRADE_SOL, "qty": qty, "qtyLeft": qty,
@@ -361,6 +409,11 @@ def apply_events(st, events, info, fill=model_fill):
                 if sell(st, p, qs[p["strategy"]], px, ev["time"], src, "wallet sold", frac, lag, ev["sig"]):
                     del open_pos[(w, mint, p["strategy"])]
     st["positions"] = list(open_pos.values())
+    if st.get("caughtUp"):
+        notify(f"Caught up {st['caughtUp']} copied buy{'s' if st['caughtUp'] != 1 else ''}",
+               "These happened while the engine was offline and were priced with the slippage estimate.", ["hourglass"], 2)
+        st["caughtUp"] = 0
+    flush_notifications()
 
 
 def apply_exit_rules(st, cur_price):
@@ -461,6 +514,15 @@ def publish(st, sp, top, engine):
                "closed": [pub(p) for p in closed[-800:]][::-1], "trades": st["trades"][-800:][::-1],
                "equity": st["equity"]}, open(f"{DATA}/paper.json", "w"))
     print(" · ".join(f"{k} {v['totalPnlSol']:+.3f}" for k, v in strats.items()) + f" SOL; {len(positions)} open positions", file=sys.stderr)
+    today = time.strftime("%Y-%m-%d")
+    if NTFY_TOPIC and time.localtime().tm_hour >= 21 and st.get("lastSummary") != today:
+        st["lastSummary"] = today
+        json.dump(st, open(STATE, "w"))
+        names = {"follow": "Follow", "stop30": "-30% stop", "tp2x": "2x then trail", "max24h": "24 hours"}
+        lines = [f"{names.get(k, k)}: {v['totalPnlSol']:+.3f} SOL ({v['closedPositions']} closed, {v['openPositions']} open)" for k, v in strats.items()]
+        best = max(strats, key=lambda k: strats[k]["totalPnlSol"])
+        notify(f"SolChain today: best is {names.get(best, best)}", "\n".join(lines), ["bar_chart"], 2)
+    flush_notifications()
 
 
 def live_engine_active(st):
@@ -471,6 +533,8 @@ def live_engine_active(st):
 
 
 def main():
+    global RECENT_SEC
+    RECENT_SEC = 5400  # the hourly check sees trades up to an hour old; those still count as new
     st = load_state()
     if live_engine_active(st):
         print("live engine is running; hourly check skipped", file=sys.stderr)

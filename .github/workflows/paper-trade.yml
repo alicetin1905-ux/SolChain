@@ -25,6 +25,7 @@ jobs:
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FOLLOW: "10"
           TRADE_SOL: "1"
         run: python -u scripts/paper.py data
