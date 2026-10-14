@@ -40,3 +40,6 @@ It follows the top 10 non-bot wallets on the leaderboard and copies their swaps 
 a buy opens one position per wallet and token (tokens under $25k liquidity are skipped), and a sell by that wallet sells the same share of the copy.
 Each fill is 3% worse than the wallet's own price plus 0.001 SOL in fees. No real trades are made.
 Tune it with the `FOLLOW`, `TRADE_SOL`, `SLIPPAGE_PCT` and `FEE_SOL` environment variables in the workflow.
+
+For faster reactions, run the live engine (`scripts/live.py`) on an always-on Mac; see [mac/README.md](mac/README.md).
+It watches the wallets in real time, prices every copy with a Jupiter quote, and takes over from the hourly check while it runs.

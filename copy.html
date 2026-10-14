@@ -14,7 +14,7 @@
 <div class="wrap">
   <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html" aria-current="page">Copy-trade (paper)</a></nav>
   <header class="head" id="overview">
-    <div class="eyebrow"><span class="badge">Paper trading</span><span class="live" id="fresh">Loading data</span></div>
+    <div class="eyebrow"><span class="badge">Paper trading</span><span class="live" id="fresh">Loading data</span><span id="mode"></span></div>
     <h1>Copy-trading the top 10</h1>
     <p class="take" id="take">Loading the simulation…</p>
     <p class="when" id="when"></p>
@@ -89,7 +89,7 @@
 
   <section class="card" id="trades">
     <h2>Trade log</h2>
-    <p class="note">Every simulated fill, most recent first. "Leader tx" opens the copied wallet's own transaction on Solscan.</p>
+    <p class="note">Every simulated fill, most recent first. "Delay" is how long after the copied wallet's own trade the copy was filled. "Leader tx" opens that wallet's transaction on Solscan.</p>
     <div class="scroll short">
       <table id="trade-table">
         <thead><tr>
@@ -98,6 +98,7 @@
           <th class="plain"><span>Token</span></th>
           <th class="plain hide-narrow"><span>Wallet</span></th>
           <th class="plain num"><span>SOL</span></th>
+          <th class="plain num hide-narrow"><span>Delay</span></th>
           <th class="plain hide-narrow"><span>Leader tx</span></th>
         </tr></thead>
         <tbody></tbody>
@@ -111,8 +112,8 @@
       <li><b>No real money.</b> Nothing is bought or sold. This page shows what copying would have done.</li>
       <li><b>Buys.</b> When a followed wallet buys a token against SOL, USDC or USDT, the engine buys <span id="r-size">1 SOL</span> of it, once per wallet and token. Tokens with less than $25k liquidity are skipped.</li>
       <li><b>Sells.</b> When that wallet sells, the engine sells the same share of its copy. Selling everything closes the position.</li>
-      <li><b>Costs.</b> Each fill is <span id="r-slip">3%</span> worse than the wallet's own price, for arriving after it, plus <span id="r-fee">0.001 SOL</span> in fees.</li>
-      <li><b>Timing.</b> A GitHub Action checks the wallets every hour. A live engine would react within seconds, but the simulated prices are based on the wallet's own fill, so the hourly check mainly delays when trades show up here.</li>
+      <li><b>Prices.</b> When the live engine runs, each copy is priced with a real Jupiter quote at the moment it reacts, so price impact and the price move since the wallet's trade are included. Otherwise a fill is <span id="r-slip">3%</span> worse than the wallet's own price. Every fill also pays <span id="r-fee">0.001 SOL</span> in fees. Partial sells worth under 0.02 SOL are skipped.</li>
+      <li><b>Timing.</b> The live engine runs on an always-on Mac and reacts within seconds. When it is offline, a GitHub Action checks the wallets every hour instead.</li>
     </ul>
   </section>
 
@@ -156,7 +157,11 @@
       : `Following the top ${s.following} wallets with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. No copies yet: a position opens the first time one of them buys a token with at least $25k liquidity.`;
     $('when').textContent = `Prices and positions as of ${when(s.updatedAt)} UTC.`;
     $('fresh').textContent = `Checked ${ago(s.updatedAt)}`;
-    $('fresh').classList.toggle('stale', (Date.now() - new Date(s.updatedAt)) / 3.6e6 > 3);
+    const live = s.engine === 'live';
+    $('fresh').classList.toggle('stale', (Date.now() - new Date(s.updatedAt)) / 3.6e6 > (live ? 0.5 : 3));
+    $('mode').textContent = live
+      ? `Live engine${s.medianLagSec != null ? ` · median delay ${d3.format('.0f')(s.medianLagSec)} s` : ''}`
+      : 'Hourly check';
     $('r-size').textContent = sol(s.tradeSol, 0);
     $('r-slip').textContent = d3.format('.0f')(s.slippagePct) + '%';
     $('r-fee').textContent = sol(s.feeSol);
@@ -252,7 +257,7 @@
 
   function tradeTable() {
     const tb = document.querySelector('#trade-table tbody'); tb.replaceChildren();
-    if (!D.trades.length) return emptyRow(tb, 6, 'No simulated trades yet.');
+    if (!D.trades.length) return emptyRow(tb, 7, 'No simulated trades yet.');
     for (const t of D.trades) {
       const tr = tb.insertRow();
       const c = tr.insertCell(); c.className = 'muted'; c.textContent = when(t.time);
@@ -260,6 +265,8 @@
       tokenCell(tr.insertCell(), t.symbol, t.mint);
       const w = tr.insertCell(); w.className = 'hide-narrow'; walletCell(w, t.wallet);
       const v = tr.insertCell(); v.className = 'num'; v.textContent = (t.side === 'buy' ? '−' : '+') + d3.format(',.3f')(Math.abs(t.sol));
+      const lag = tr.insertCell(); lag.className = 'num hide-narrow muted';
+      lag.textContent = t.lagSec != null ? `${d3.format('.0f')(t.lagSec)} s${t.fill === 'jupiter' ? '' : ' (est.)'}` : 'hourly';
       const l = tr.insertCell(); l.className = 'hide-narrow data';
       if (isSig(t.leaderSig)) l.append(link('https://solscan.io/tx/' + t.leaderSig, t.leaderSig.slice(0, 8) + '…'));
     }
