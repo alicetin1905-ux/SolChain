@@ -129,7 +129,8 @@ def main():
         print(f"  {i}/{len(cands)} {w[:6]}: {len(swaps)} swaps over {span:.1f} days, {rate:.0f} transactions a day", file=sys.stderr)
     mints = {s["mint"] for swaps, _, _ in hist.values() for s in swaps}
     info = P.token_info(mints) if mints else {}
-    prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items()}  # tokens with no pair left are worth 0
+    # tokens with no pair, or too little liquidity to sell into, are worth 0: an illiquid pool's price can't be cashed out
+    prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items() if (i.get("liquidityUsd") or 0) >= 10_000}
     try:
         traders = {r["wallet"] for r in json.load(open(f"{P.DATA}/traders.json"))}
     except FileNotFoundError:
