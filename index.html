@@ -212,7 +212,7 @@
 
   <section class="card method" id="method">
     <h2>How this is worked out</h2>
-    <p>Dexscreener's own Top Traders tab is not available through its public API, so this site rebuilds it from the chain. A GitHub Action reruns the collector every few hours and commits fresh data.</p>
+    <p>Dexscreener's own Top Traders tab is not available through its public API, so this site rebuilds it from the chain. A GitHub Action reruns the collector once a day and commits fresh data.</p>
     <ul>
       <li><b>Pairs.</b> Token lists and prices come from Dexscreener's public API. Each token's deepest SOL, USDC or USDT pair is used.</li>
       <li><b>Swaps.</b> The latest transactions on each pair's pool account are read from Solana RPC. A swap is a transaction where the signing wallet's token balance and its SOL, USDC or USDT balance move in opposite directions, valued in dollars at the current SOL price. Network fees and refundable token-account rent are left out. Swaps routed through another token and swaps under $1 are skipped.</li>
@@ -279,7 +279,7 @@
     $('when').textContent = `Swaps from ${when(r.windowStart)} to ${when(r.windowEnd)}.`;
     const hours = (Date.now() - new Date(r.snapshotAt)) / 3.6e6;
     $('fresh').textContent = `Updated ${ago(r.snapshotAt)}`;
-    $('fresh').classList.toggle('stale', hours > 8);
+    $('fresh').classList.toggle('stale', hours > 30);
   }
 
   function leaderboard() {

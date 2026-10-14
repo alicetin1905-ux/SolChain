@@ -2,7 +2,7 @@ name: Update trader data
 
 on:
   schedule:
-    - cron: "17 */3 * * *"
+    - cron: "47 6 * * *"  # daily, 06:47 UTC
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,8 +27,8 @@ jobs:
           SWAPS: "1500"
           # Your own Solana RPC URL (repo secret). Without it the free public endpoint is used.
           SOL_RPC: ${{ secrets.SOL_RPC }}
-          # Parallel RPC requests; lower it if your RPC plan returns 429 errors.
-          RPC_THREADS: ${{ vars.RPC_THREADS || '8' }}
+          # Parallel RPC requests; 2 stays near the Helius free plan limit (10 requests/second).
+          RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
         run: |
           mkdir -p out
           python -u scripts/collect.py out
