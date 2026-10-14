@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SolChain Paper Copy-Trade</title>
+<meta name="description" content="A simulated copy-trading engine that follows the top 10 SolChain leaderboard wallets with 1 SOL per buy.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets.css">
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html" aria-current="page">Copy-trade (paper)</a></nav>
+  <header class="head" id="overview">
+    <div class="eyebrow"><span class="badge">Paper trading</span><span class="live" id="fresh">Loading data</span></div>
+    <h1>Copy-trading the top 10</h1>
+    <p class="take" id="take">Loading the simulation…</p>
+    <p class="when" id="when"></p>
+  </header>
+
+  <section class="tape" id="headline" aria-label="Headline figures">
+    <div class="fig"><span class="fig-label">Total PnL</span><span class="fig-value" id="k-total">—</span><span class="fig-note" id="k-total-usd">—</span></div>
+    <div class="fig"><span class="fig-label">Closed positions</span><span class="fig-value" id="k-realized">—</span><span class="fig-note" id="k-closed">—</span></div>
+    <div class="fig"><span class="fig-label">Open positions</span><span class="fig-value" id="k-open">—</span><span class="fig-note" id="k-open-n">—</span></div>
+    <div class="fig"><span class="fig-label">Capital in use</span><span class="fig-value" id="k-capital">—</span><span class="fig-note" id="k-skipped">—</span></div>
+  </section>
+
+  <section class="card" id="equity">
+    <h2>PnL over time</h2>
+    <p class="note">Closed plus open PnL in SOL after each hourly check.</p>
+    <div class="line-chart" id="chart"></div>
+  </section>
+
+  <section class="card" id="open">
+    <h2>Open positions</h2>
+    <p class="note">Copies the engine still holds, valued at the current Dexscreener price. A position closes when the wallet it copies sells.</p>
+    <div class="scroll short">
+      <table id="open-table">
+        <thead><tr>
+          <th class="plain"><span>Token</span></th>
+          <th class="plain"><span>Copied wallet</span></th>
+          <th class="plain hide-narrow"><span>Opened</span></th>
+          <th class="plain num"><span>In</span></th>
+          <th class="plain num"><span>Value now</span></th>
+          <th class="plain num"><span>PnL</span></th>
+          <th class="plain num hide-narrow"><span>Change</span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="row">
+    <section class="card" id="wallets">
+      <h2>Followed wallets</h2>
+      <p class="note">The top 10 non-bot wallets on the leaderboard. When the leaderboard changes, a wallet that drops out stops being copied, but its open copies still follow its sells.</p>
+      <div class="scroll short">
+        <table id="wallet-table">
+          <thead><tr>
+            <th class="plain"><span>Wallet</span></th>
+            <th class="plain"><span>Status</span></th>
+            <th class="plain num"><span>Copies</span></th>
+            <th class="plain num"><span>Won</span></th>
+            <th class="plain num"><span>PnL</span></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="closed">
+      <h2>Closed positions</h2>
+      <p class="note">Most recent first.</p>
+      <div class="scroll short">
+        <table id="closed-table">
+          <thead><tr>
+            <th class="plain"><span>Token</span></th>
+            <th class="plain hide-narrow"><span>Wallet</span></th>
+            <th class="plain"><span>Closed</span></th>
+            <th class="plain num"><span>PnL</span></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" id="trades">
+    <h2>Trade log</h2>
+    <p class="note">Every simulated fill, most recent first. "Leader tx" opens the copied wallet's own transaction on Solscan.</p>
+    <div class="scroll short">
+      <table id="trade-table">
+        <thead><tr>
+          <th class="plain"><span>Time</span></th>
+          <th class="plain"><span>Side</span></th>
+          <th class="plain"><span>Token</span></th>
+          <th class="plain hide-narrow"><span>Wallet</span></th>
+          <th class="plain num"><span>SOL</span></th>
+          <th class="plain hide-narrow"><span>Leader tx</span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card method" id="rules">
+    <h2>Simulation rules</h2>
+    <ul id="rules-list">
+      <li><b>No real money.</b> Nothing is bought or sold. This page shows what copying would have done.</li>
+      <li><b>Buys.</b> When a followed wallet buys a token against SOL, USDC or USDT, the engine buys <span id="r-size">1 SOL</span> of it, once per wallet and token. Tokens with less than $25k liquidity are skipped.</li>
+      <li><b>Sells.</b> When that wallet sells, the engine sells the same share of its copy. Selling everything closes the position.</li>
+      <li><b>Costs.</b> Each fill is <span id="r-slip">3%</span> worse than the wallet's own price, for arriving after it, plus <span id="r-fee">0.001 SOL</span> in fees.</li>
+      <li><b>Timing.</b> A GitHub Action checks the wallets every hour. A live engine would react within seconds, but the simulated prices are based on the wallet's own fill, so the hourly check mainly delays when trades show up here.</li>
+    </ul>
+  </section>
+
+  <footer>Data: Solana RPC, Dexscreener public API. Not financial advice.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const sol = (v, digits = 3) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + d3.format(`,.${digits}f`)(Math.abs(v)) + ' SOL');
+  const signedSol = (v, d) => (v > 0 ? '+' : '') + sol(v, d);
+  const usd = (v) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + '$' + d3.format(',.0f')(Math.abs(v)));
+  const pct = (v) => (!isFinite(v) ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + d3.format(',.1f')(Math.abs(v)) + '%');
+  const short = (w) => (w && w.length > 10 ? w.slice(0, 4) + '…' + w.slice(-4) : w || '—');
+  const isAddr = (w) => typeof w === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(w);
+  const isSig = (s) => typeof s === 'string' && /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(s);
+  const when = (s) => { const d = new Date(s); return isNaN(d) ? '—' : d3.utcFormat('%b %-d, %H:%M')(d); };
+  const ago = (s) => { const m = Math.round((Date.now() - new Date(s)) / 60000); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const tone = (el, v) => { el.classList.toggle('gain', v > 0); el.classList.toggle('loss', v < 0); return el; };
+  const link = (href, text, cls) => { const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text; if (cls) a.className = cls; return a; };
+  const walletCell = (td, w) => { td.classList.add('data'); if (isAddr(w)) td.append(link('https://solscan.io/account/' + w, short(w))); else td.textContent = short(w); };
+  const tokenCell = (td, sym, mint) => { if (isAddr(mint)) td.append(link('https://dexscreener.com/solana/' + mint, sym)); else td.textContent = sym; };
+  const emptyRow = (tbody, cols, text) => { const td = tbody.insertRow().insertCell(); td.colSpan = cols; td.innerHTML = '<div class="empty"></div>'; td.firstChild.textContent = text; };
+
+  let D = null;
+
+  function headline() {
+    const s = D.summary;
+    $('k-total').textContent = signedSol(s.totalPnlSol); tone($('k-total'), s.totalPnlSol);
+    $('k-total-usd').textContent = `≈ ${usd(s.totalPnlSol * s.solUsd)} at $${d3.format(',.2f')(s.solUsd)} per SOL`;
+    $('k-realized').textContent = signedSol(s.realizedSol); tone($('k-realized'), s.realizedSol);
+    $('k-closed').textContent = s.closedPositions ? `${s.closedPositions} closed, ${d3.format('.0f')(s.winRatePct)}% in profit` : 'None closed yet';
+    $('k-open').textContent = signedSol(s.openPnlSol); tone($('k-open'), s.openPnlSol);
+    $('k-open-n').textContent = `${s.openPositions} position${s.openPositions === 1 ? '' : 's'} open`;
+    $('k-capital').textContent = sol(s.capitalInUseSol, 0);
+    $('k-skipped').textContent = `${s.skippedLowLiquidity} buy${s.skippedLowLiquidity === 1 ? '' : 's'} skipped for low liquidity`;
+    const n = s.openPositions + s.closedPositions;
+    $('take').textContent = n
+      ? `Copying the top ${s.following} wallets with ${sol(s.tradeSol, 0)} per buy has made ${signedSol(s.totalPnlSol)} since ${when(s.startedAt)} UTC, across ${n} copied position${n === 1 ? '' : 's'}.`
+      : `Following the top ${s.following} wallets with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. No copies yet: a position opens the first time one of them buys a token with at least $25k liquidity.`;
+    $('when').textContent = `Prices and positions as of ${when(s.updatedAt)} UTC.`;
+    $('fresh').textContent = `Checked ${ago(s.updatedAt)}`;
+    $('fresh').classList.toggle('stale', (Date.now() - new Date(s.updatedAt)) / 3.6e6 > 3);
+    $('r-size').textContent = sol(s.tradeSol, 0);
+    $('r-slip').textContent = d3.format('.0f')(s.slippagePct) + '%';
+    $('r-fee').textContent = sol(s.feeSol);
+  }
+
+  function chart() {
+    const box = $('chart');
+    box.replaceChildren();
+    const pts = D.equity.map((e) => ({ t: new Date(e.t), v: e.realizedSol + e.openPnlSol })).filter((p) => !isNaN(p.t));
+    if (pts.length < 2) { box.innerHTML = '<div class="empty">The line appears after two hourly checks.</div>'; return; }
+    const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim();
+    const W = box.clientWidth || 600, H = 260, m = { t: 12, r: 16, b: 26 };
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'PnL over time');
+    const lo = Math.min(0, d3.min(pts, (p) => p.v)), hi = Math.max(0, d3.max(pts, (p) => p.v));
+    const y = d3.scaleLinear([lo, hi || 1], [H - m.b, m.t]).nice();
+    const yt = y.ticks(4);
+    const probe = svg.append('text').attr('font-size', 11);
+    m.l = (d3.max(yt, (t) => { probe.text(sol(t, 1)); return probe.node().getComputedTextLength(); }) || 30) + 10;
+    probe.remove();
+    const x = d3.scaleUtc(d3.extent(pts, (p) => p.t), [m.l, W - m.r]);
+    svg.append('g').selectAll('line').data(yt).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', (t) => y(t)).attr('y2', (t) => y(t))
+      .attr('stroke', (t) => (t === 0 ? col('--muted') : col('--line'))).attr('stroke-width', 1);
+    svg.append('g').selectAll('text').data(yt).join('text').attr('x', m.l - 8).attr('y', (t) => y(t)).attr('dy', '0.35em').attr('text-anchor', 'end')
+      .attr('font-size', 11).attr('fill', col('--muted')).text((t) => sol(t, 1));
+    const span = pts[pts.length - 1].t - pts[0].t;
+    const fmt = d3.utcFormat(span > 3 * 864e5 ? '%b %-d' : span > 864e5 ? '%b %-d %H:%M' : '%H:%M');
+    const xt = [...new Map(x.ticks(W < 500 ? 3 : 6).map((t) => [fmt(t), t])).values()];  // one tick per distinct label
+    svg.append('g').selectAll('text').data(xt).join('text').attr('x', (t) => x(t)).attr('y', H - 6).attr('text-anchor', 'middle')
+      .attr('font-size', 11).attr('fill', col('--muted')).text(fmt);
+    svg.append('path').datum(pts).attr('fill', 'none').attr('stroke', col('--accent')).attr('stroke-width', 2)
+      .attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round').attr('d', d3.line((p) => x(p.t), (p) => y(p.v)));
+    const last = pts[pts.length - 1];
+    svg.append('circle').attr('cx', x(last.t)).attr('cy', y(last.v)).attr('r', 4).attr('fill', col('--accent'));
+    const dot = svg.append('circle').attr('r', 4).attr('fill', col('--accent')).attr('opacity', 0);
+    const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; box.append(tip);
+    svg.append('rect').attr('x', m.l).attr('y', 0).attr('width', W - m.l - m.r).attr('height', H).attr('fill', 'transparent')
+      .on('pointermove', (event) => {
+        const [mx] = d3.pointer(event);
+        const i = d3.bisector((p) => p.t).center(pts, x.invert(mx)), p = pts[i];
+        dot.attr('cx', x(p.t)).attr('cy', y(p.v)).attr('opacity', 1);
+        tip.replaceChildren();
+        const k = document.createElement('div'); k.className = 'k'; k.textContent = when(p.t) + ' UTC';
+        const v = document.createElement('div'); v.textContent = signedSol(p.v);
+        tip.append(k, v); tip.hidden = false;
+        const bx = (x(p.t) / W) * box.clientWidth;
+        tip.style.left = Math.max(0, Math.min(box.clientWidth - tip.offsetWidth, bx + 12)) + 'px';
+        tip.style.top = (y(p.v) / H) * box.clientHeight + 12 + 'px';
+      })
+      .on('pointerleave', () => { tip.hidden = true; dot.attr('opacity', 0); });
+  }
+
+  function openTable() {
+    const tb = document.querySelector('#open-table tbody'); tb.replaceChildren();
+    const rows = D.positions.slice().sort((a, b) => b.pnlSol - a.pnlSol);
+    if (!rows.length) return emptyRow(tb, 7, 'No open copies right now.');
+    for (const p of rows) {
+      const tr = tb.insertRow();
+      tokenCell(tr.insertCell(), p.symbol, p.mint);
+      walletCell(tr.insertCell(), p.wallet);
+      const o = tr.insertCell(); o.className = 'hide-narrow muted'; o.textContent = when(p.openedAt);
+      const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
+      n(sol(p.entrySol, 2)); n(sol(p.valueSol + p.realizedSol, 3));
+      tone(n(signedSol(p.pnlSol)), p.pnlSol);
+      tone(n(pct(100 * p.pnlSol / p.entrySol), 'hide-narrow'), p.pnlSol);
+    }
+  }
+
+  function walletTable() {
+    const tb = document.querySelector('#wallet-table tbody'); tb.replaceChildren();
+    const rows = D.wallets.slice().sort((a, b) => (b.following - a.following) || (b.pnlSol - a.pnlSol));
+    if (!rows.length) return emptyRow(tb, 5, 'No wallets followed yet.');
+    for (const w of rows) {
+      const tr = tb.insertRow();
+      walletCell(tr.insertCell(), w.wallet);
+      const s = tr.insertCell(); const pill = document.createElement('span'); pill.className = 'pill'; pill.textContent = w.following ? 'following' : 'dropped out'; s.append(pill);
+      const n = (t) => { const td = tr.insertCell(); td.className = 'num'; td.textContent = t; return td; };
+      n(w.positions); n(w.closed ? `${w.wins}/${w.closed}` : '—');
+      tone(n(w.positions ? signedSol(w.pnlSol) : '—'), w.pnlSol);
+    }
+  }
+
+  function closedTable() {
+    const tb = document.querySelector('#closed-table tbody'); tb.replaceChildren();
+    if (!D.closed.length) return emptyRow(tb, 4, 'Nothing closed yet.');
+    for (const p of D.closed) {
+      const tr = tb.insertRow();
+      tokenCell(tr.insertCell(), p.symbol, p.mint);
+      const w = tr.insertCell(); w.className = 'hide-narrow'; walletCell(w, p.wallet);
+      const c = tr.insertCell(); c.className = 'muted'; c.textContent = when(p.closedAt);
+      const v = tr.insertCell(); v.className = 'num'; v.textContent = signedSol(p.pnlSol); tone(v, p.pnlSol);
+    }
+  }
+
+  function tradeTable() {
+    const tb = document.querySelector('#trade-table tbody'); tb.replaceChildren();
+    if (!D.trades.length) return emptyRow(tb, 6, 'No simulated trades yet.');
+    for (const t of D.trades) {
+      const tr = tb.insertRow();
+      const c = tr.insertCell(); c.className = 'muted'; c.textContent = when(t.time);
+      const s = tr.insertCell(); s.textContent = t.side === 'buy' ? 'Buy' : `Sell ${t.fraction != null && t.fraction < 0.98 ? d3.format('.0%')(t.fraction) : 'all'}`; s.className = t.side === 'buy' ? '' : 'muted';
+      tokenCell(tr.insertCell(), t.symbol, t.mint);
+      const w = tr.insertCell(); w.className = 'hide-narrow'; walletCell(w, t.wallet);
+      const v = tr.insertCell(); v.className = 'num'; v.textContent = (t.side === 'buy' ? '−' : '+') + d3.format(',.3f')(Math.abs(t.sol));
+      const l = tr.insertCell(); l.className = 'hide-narrow data';
+      if (isSig(t.leaderSig)) l.append(link('https://solscan.io/tx/' + t.leaderSig, t.leaderSig.slice(0, 8) + '…'));
+    }
+  }
+
+  function draw() { headline(); chart(); openTable(); walletTable(); closedTable(); tradeTable(); }
+
+  fetch(`data/paper.json?v=${Date.now()}`, { cache: 'no-store' })
+    .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then((d) => { D = d; draw(); })
+    .catch(() => {
+      $('take').textContent = 'The simulation has not run yet. Its first hourly check starts tracking the wallets.';
+      $('fresh').textContent = 'No data'; $('fresh').classList.add('stale');
+      for (const id of ['open-table', 'wallet-table', 'closed-table', 'trade-table']) emptyRow(document.querySelector(`#${id} tbody`), 7, 'Waiting for the first check.');
+      $('chart').innerHTML = '<div class="empty">Waiting for the first check.</div>';
+    });
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => D && chart(), 150); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => D && chart());
+})();
+</script>
+</body>
+</html>

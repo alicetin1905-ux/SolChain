@@ -1,0 +1,39 @@
+name: Paper copy-trade
+
+on:
+  schedule:
+    - cron: "23 * * * *"  # hourly
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-commit
+  cancel-in-progress: false
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Simulate copy trades
+        env:
+          SOL_RPC: ${{ secrets.SOL_RPC }}
+          RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
+          FOLLOW: "10"
+          TRADE_SOL: "1"
+        run: python -u scripts/paper.py data
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/paper.json data/paper_state.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Update paper copy-trade"
+          git pull --rebase origin main
+          git push

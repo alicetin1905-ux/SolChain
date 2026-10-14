@@ -32,3 +32,11 @@ One run makes about 22,500 RPC calls (15 pairs × 1,500 transactions). Check tha
 Locally: `SOL_RPC=https://... python3 scripts/collect.py data`.
 
 Not financial advice.
+
+## Paper copy-trading
+
+`copy.html` shows a simulated copy-trading engine (`scripts/paper.py`, run hourly by `.github/workflows/paper-trade.yml`).
+It follows the top 10 non-bot wallets on the leaderboard and copies their swaps with 1 SOL per buy:
+a buy opens one position per wallet and token (tokens under $25k liquidity are skipped), and a sell by that wallet sells the same share of the copy.
+Each fill is 3% worse than the wallet's own price plus 0.001 SOL in fees. No real trades are made.
+Tune it with the `FOLLOW`, `TRADE_SOL`, `SLIPPAGE_PCT` and `FEE_SOL` environment variables in the workflow.
