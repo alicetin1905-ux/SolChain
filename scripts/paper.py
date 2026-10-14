@@ -48,7 +48,11 @@ def get(url, body=None, tries=4):
 
 def rpc(method, params):
     for attempt in range(6):
-        r = get(RPC, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        try:
+            r = get(RPC, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        except RuntimeError:  # rate-limited or unreachable for a while: back off and try again
+            time.sleep(5 + 2 ** attempt)
+            continue
         if "error" not in r:
             return r.get("result")
         if r["error"].get("code") not in (-32005, -32429, 429, -32603):
