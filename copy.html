@@ -3,6 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SolChain">
+<meta name="theme-color" content="#0c1219">
+<script>
+  // On the home screen the status bar sits over the page in white text, so the app always uses the dark theme there.
+  if (navigator.standalone || matchMedia('(display-mode: standalone)').matches) document.documentElement.dataset.theme = 'dark';
+</script>
 <title>SolChain Paper Copy-Trade</title>
 <meta name="description" content="A simulated copy-trading engine that follows scored Solana wallets and compares four exit strategies.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -262,7 +274,7 @@
     const total = d3.sum(Object.values(skips));
     $('k-skipped').textContent = d3.format(',')(total);
     $('k-skip-why').textContent = total ? Object.entries(skips).filter(([, v]) => v).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${SKIPS[k] || k}`).join(', ') : 'None yet';
-    const ss = s.strategies || {};
+    const ss = s.strategies || { follow: s };
     const best = ORDER.filter((k) => ss[k] && ss[k].closedPositions + ss[k].openPositions).sort((a, b) => ss[b].totalPnlSol - ss[a].totalPnlSol)[0];
     const parts = [s.followingScored ? `${s.followingScored} scored` : null, s.following - (s.followingScored || 0) - (s.followingEarly || 0) ? `${s.following - (s.followingScored || 0) - (s.followingEarly || 0)} from the leaderboard` : null, s.followingEarly ? `${s.followingEarly} early buyers` : null].filter(Boolean).join(', ');
     $('take').textContent = best
@@ -446,5 +458,6 @@
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => D && draw());
 })();
 </script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});</script>
 </body>
 </html>

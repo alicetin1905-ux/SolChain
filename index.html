@@ -3,6 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SolChain">
+<meta name="theme-color" content="#0c1219">
+<script>
+  // On the home screen the status bar sits over the page in white text, so the app always uses the dark theme there.
+  if (navigator.standalone || matchMedia('(display-mode: standalone)').matches) document.documentElement.dataset.theme = 'dark';
+</script>
 <title>SolChain Top Traders</title>
 <meta name="description" content="The most profitable wallets trading the hottest Solana pairs on Dexscreener, rebuilt from on-chain swaps.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -360,5 +372,6 @@
   load();
 })();
 </script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});</script>
 </body>
 </html>

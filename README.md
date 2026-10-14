@@ -49,3 +49,7 @@ It watches the wallets in real time, prices every copy with a Jupiter quote, and
 - `scripts/early.py` (daily, `early-buyers.yml`) finds wallets that were among the first buyers of several pumped pump.fun tokens, from each token's bonding-curve history. Results: `early.html`.
 - `scripts/score.py` (daily, `score-wallets.yml`) reads up to 250 swaps from the last 30 days of each candidate wallet and backtests copying it. Wallets that look like bots, flip faster than a minute, traded fewer than 5 tokens or lose in the backtest are left out. Results: `wallets.html`.
 - The copy-trade engine follows the 10 best scored wallets plus up to 5 early buyers that pass the same checks, drops a wallet after 10 losing copies, skips risky tokens (mint or freeze authority kept, concentrated holders, under $25k liquidity) and buys that already ran 15% past the wallet's price, and holds every copy in four exit strategies side by side.
+
+## On the iPhone home screen
+
+The site is a web app: open https://alicetin1905-ux.github.io/SolChain/copy.html in Safari, tap Share, then "Add to Home Screen". It opens full screen with its own icon, always in the dark theme, and shows the last loaded data when offline (`manifest.webmanifest`, `sw.js`, `icons/`).
