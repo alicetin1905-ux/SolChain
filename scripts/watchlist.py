@@ -36,15 +36,20 @@ def apply():
     json.dump(current[-MAX:], open(PATH, "w"), indent=1)
     print(" ".join(added))
     with open("watchlist_action.txt", "w") as f:
-        f.write(f"{'remove' if action.startswith('remove') else 'add'} {len(wallets)}")
+        # a share link like gmgn.ai/profile/0GAntD hides the address behind a short code
+        link = "link" if re.search(r"https?://", body) and not wallets else "-"
+        f.write(f"{'remove' if action.startswith('remove') else 'add'} {len(wallets)} {link}")
 
 
 def report():
     wallets = os.environ.get("WALLETS", "").split()
-    action, n = open("watchlist_action.txt").read().split()
+    action, n, link = (open("watchlist_action.txt").read().split() + ["-"])[:3]
     lines = []
     if action == "remove":
         lines.append(f"Removed {n} wallet{'s' if n != '1' else ''} from the watchlist.")
+    elif not wallets and link == "link":
+        lines += ["No wallet address found. The form got a share link (like gmgn.ai/profile/…), which only holds a short code, not the address.",
+                  "", "In GMGN, open the wallet, tap its shortened address (like `AbCd…wXyZ`) or the copy icon next to it, and paste that full address (32 to 44 letters and digits) in a new form."]
     elif not wallets:
         lines.append("No new wallets: every address was already on the watchlist, or none was found in the form.")
     else:
