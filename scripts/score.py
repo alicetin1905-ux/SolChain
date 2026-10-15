@@ -26,8 +26,10 @@ KOL_MIN_TRADES = 20     # Kolscan wins + losses needed before a trader is worth 
 KOL_MIN_WIN = 0.4       # and the share of them that won
 MIN_TOKENS = 5          # fewer tokens than this is too small a sample to judge
 MIN_WIN_RATE = 30       # % of copied tokens that must have made money
-BOT_TXS_PER_DAY = 150   # more transactions a day than this looks like a bot
+BOT_TXS_PER_DAY = 150   # signing more transactions a day than this looks like a bot
 MIN_HOLD_SEC = 60       # a median hold shorter than this can't be copied in time
+BUSY_TXS_PER_DAY = 2000 # successful transactions naming a wallet a day beyond which it is not read at all
+SIG_PAGES = 5           # signature pages (1000 each) to look through per wallet
 
 
 def watchlist():
@@ -81,28 +83,34 @@ def candidates():
 
 
 def history(wallet, sp):
-    """The wallet's swaps in the window (oldest first), its transactions per day, and the days the swaps cover.
-    Swaps are None for a wallet so active it can only be a bot; its transactions are then not read."""
+    """The wallet's swaps in the window (oldest first), the transactions it signs a day, and the days the swaps cover.
+    Other wallets' transactions can name it too (famous traders are swarmed by copy bots), so activity is measured
+    on the transactions it signed. Swaps are None for a wallet too busy to read: its transactions are then not fetched."""
     since = time.time() - DAYS * 86400
-    sigs, before = [], None
-    while len(sigs) < WALLET_TXS * 4:
+    sigs, before, oldest = [], None, time.time()
+    for _ in range(SIG_PAGES):
         page = P.rpc("getSignaturesForAddress", [wallet, {"limit": 1000, **({"before": before} if before else {})}]) or []
-        sigs += [s for s in page if (s.get("blockTime") or 0) >= since]
-        if len(page) < 1000 or (page[-1].get("blockTime") or 0) < since:
+        if not page:
+            break
+        oldest = min(oldest, page[-1].get("blockTime") or oldest)
+        sigs += [s for s in page if (s.get("blockTime") or 0) >= since and s.get("err") is None]
+        if len(sigs) >= WALLET_TXS * 4 or len(page) < 1000 or oldest < since:
             break
         before = page[-1]["signature"]
     span = lambda xs: max(1 / 24, (time.time() - min((x.get("blockTime") or time.time()) for x in xs)) / 86400) if xs else 0
-    rate = len(sigs) / span(sigs) if sigs else 0
-    if rate > BOT_TXS_PER_DAY * 2:
-        return None, rate, span(sigs)  # clearly a bot: don't spend credits reading its transactions
-    ok = [s for s in sigs if s.get("err") is None][:WALLET_TXS]
-    swaps = []
+    busy = len(sigs) / max(1 / 24, (time.time() - max(oldest, since)) / 86400)
+    if busy > BUSY_TXS_PER_DAY:
+        return None, busy, span(sigs)  # a bot or a crowd of copy bots: too costly to read, and too crowded to copy
+    ok = sigs[:WALLET_TXS]
+    swaps, signed = [], 0
     for s, tx in zip(ok, P.POOL.map(lambda s: P.fetch_tx(s["signature"]), ok)):
-        sw = tx and P.parse_swap(tx, wallet, sp)
+        if not tx:
+            continue
+        signed += any(isinstance(k, dict) and k.get("signer") and k.get("pubkey") == wallet for k in tx["transaction"]["message"]["accountKeys"])
+        sw = P.parse_swap(tx, wallet, sp)
         if sw:
             swaps.append({**sw, "time": tx.get("blockTime") or s.get("blockTime") or 0})
-    # activity rate over every transaction found; coverage over the ones actually read
-    return sorted(swaps, key=lambda x: x["time"]), rate, span(ok)
+    return sorted(swaps, key=lambda x: x["time"]), signed / span(ok) if ok else 0, span(ok)
 
 
 def evaluate(wallet, swaps, tx_per_day, span_days, prices):
@@ -188,7 +196,7 @@ def main():
     for w, (swaps, rate, span) in hist.items():
         r = evaluate(w, swaps or [], rate, span, prices)
         if swaps is None:
-            r["flags"] = ["bot-like activity"]
+            r["flags"] = ["too busy to follow"]
         r["source"] = ("watchlist" if w in watched else "kolscan" if w in KOLS else "early" if w in early
                        else "leaderboard" if w in traders else "followed")
         if w in watched and watched[w].get("note"):
