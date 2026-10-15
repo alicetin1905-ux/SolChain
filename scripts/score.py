@@ -13,7 +13,7 @@ Settings (environment):
   WALLET_TXS     transactions to read per wallet (default 250)
   DAYS           history window in days (default 30)
   SCORE_ONLY     space-separated wallets to score now; their rows are merged into the existing scores
-  KOL_MAX        traders from the kolscan.io week and month leaderboards to add as candidates (default 25)
+  KOL_MAX        quiet traders from the kolscan.io leaderboards to add as candidates (default 25)
 """
 import collections, json, os, re, sys, time, urllib.request
 import paper as P
@@ -22,8 +22,9 @@ CANDIDATES = int(os.environ.get("CANDIDATES") or 30)
 WALLET_TXS = int(os.environ.get("WALLET_TXS") or 250)
 DAYS = int(os.environ.get("DAYS") or 30)
 KOL_MAX = int(os.environ.get("KOL_MAX") or 25)  # Kolscan traders to score per run
-KOL_MIN_TRADES = 20     # Kolscan wins + losses needed before a trader is worth scoring
+KOL_MIN_TRADES = 10     # Kolscan wins + losses needed before a trader is worth scoring
 KOL_MIN_WIN = 0.4       # and the share of them that won
+KOL_MAX_TRADES_PER_DAY = 25  # busier traders are crowded by copy bots
 MIN_TOKENS = 5          # fewer tokens than this is too small a sample to judge
 MIN_WIN_RATE = 30       # % of copied tokens that must have made money
 BOT_TXS_PER_DAY = 150   # signing more transactions a day than this looks like a bot
@@ -41,7 +42,8 @@ def watchlist():
 
 
 def kolscan():
-    """Weekly and monthly leaderboard of kolscan.io (known traders, with profit and win/loss counts), best first.
+    """Quiet, profitable traders from the kolscan.io day, week and month leaderboards, most profit per trade first.
+    Busy famous traders are left out: copy bots crowd them, so a copy always buys after the crowd.
     The page embeds its leaderboard data; one request a day."""
     try:
         req = urllib.request.Request("https://kolscan.io/leaderboard", headers={"user-agent": "Mozilla/5.0 (solchain wallet scoring)"})
@@ -54,12 +56,13 @@ def kolscan():
     best = {}
     for wallet, name, profit, wins, losses, tf in rows:
         wins, losses, tf, profit = int(wins), int(losses), int(tf), float(profit)
-        if tf not in (7, 30) or wins + losses < KOL_MIN_TRADES or wins / (wins + losses) < KOL_MIN_WIN:
+        trades = wins + losses
+        if trades < KOL_MIN_TRADES or wins / trades < KOL_MIN_WIN or profit <= 0 or trades / tf > KOL_MAX_TRADES_PER_DAY:
             continue
         note = f"Kolscan {name}: {profit:+.0f} SOL in {tf}d, {wins}W/{losses}L"
         if wallet not in best or tf > best[wallet]["tf"]:
-            best[wallet] = {"tf": tf, "profit": profit, "note": note}
-    return dict(sorted(best.items(), key=lambda kv: (-kv[1]["tf"], -kv[1]["profit"]))[:KOL_MAX])
+            best[wallet] = {"tf": tf, "perTrade": profit / trades, "note": note}
+    return dict(sorted(best.items(), key=lambda kv: -kv[1]["perTrade"])[:KOL_MAX])
 
 
 def candidates():
@@ -171,9 +174,8 @@ def main():
     global KOLS
     sp = P.sol_usd()
     only = (os.environ.get("SCORE_ONLY") or "").split()
-    if not only:
-        KOLS = kolscan()
-        print(f"{len(KOLS)} Kolscan traders with {KOL_MIN_TRADES}+ trades and {KOL_MIN_WIN:.0%}+ wins", file=sys.stderr)
+    KOLS = kolscan()  # also labels Kolscan traders scored with SCORE_ONLY
+    print(f"{len(KOLS)} quiet Kolscan traders with {KOL_MIN_TRADES}+ trades and {KOL_MIN_WIN:.0%}+ wins", file=sys.stderr)
     cands = only or candidates()
     print(f"scoring {len(cands)} wallets over {DAYS} days, up to {WALLET_TXS} transactions each", file=sys.stderr)
     hist = {}

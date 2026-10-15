@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "37 9 * * *"  # daily, after the leaderboard and early-buyer runs
   workflow_dispatch:
+    inputs:
+      wallets:
+        description: "Only score these wallets (space-separated); leave empty for a full run"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -28,6 +33,7 @@ jobs:
           CANDIDATES: "30"
           WALLET_TXS: "250"
           DAYS: "30"
+          SCORE_ONLY: ${{ inputs.wallets }}
         run: python -u scripts/score.py data
       - name: Commit results
         run: |
