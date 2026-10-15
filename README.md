@@ -48,7 +48,7 @@ It watches the wallets in real time, prices every copy with a Jupiter quote, and
 
 - `scripts/early.py` (daily, `early-buyers.yml`) finds wallets that were among the first buyers of several pumped pump.fun tokens, from each token's bonding-curve history. Results: `early.html`.
 - `scripts/score.py` (daily, `score-wallets.yml`) reads up to 250 swaps from the last 30 days of each candidate wallet and backtests copying it. Wallets that look like bots, flip faster than a minute, traded fewer than 5 tokens or lose in the backtest are left out. Results: `wallets.html`.
-- The copy-trade engine follows the 10 best scored wallets, drops a wallet after 10 losing copies, skips risky tokens (mint or freeze authority kept, concentrated holders, under $10k liquidity or market cap) and buys that already ran 15% past the wallet's price, and holds every copy in four exit strategies side by side.
+- The copy-trade engine follows the 10 best scored wallets, drops a wallet after 10 losing copies, skips risky tokens (mint or freeze authority kept, concentrated holders, under $10k liquidity or market cap) and buys that already ran 30% past the wallet's price, and holds every copy in four exit strategies side by side.
 
 ## On the iPhone home screen
 

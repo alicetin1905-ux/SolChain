@@ -10,7 +10,7 @@ Settings (environment):
                  or the leaderboard's top when there are no scores yet (default 10)
   EARLY_FOLLOW   number of repeat early buyers from data/early.json to follow too (default 0)
   DROP_AFTER     stop following a wallet once this many copies closed at a net loss (default 10)
-  CHASE_PCT      skip a copy when the live price is this much above the wallet's own (default 15)
+  CHASE_PCT      skip a copy when the live price is this much above the wallet's own (default 30)
   TOP10_MAX_PCT  skip tokens whose 10 largest holders, pool left out, own more than this (default 40)
   NTFY_TOPIC     ntfy.sh topic for phone notifications (keep it secret: anyone with the name can read them)
   TRADE_SOL      SOL per copied buy (default 1)
@@ -32,7 +32,7 @@ FEE_SOL = float(os.environ.get("FEE_SOL") or 0.001)
 MIN_LIQ_USD = 10_000   # a DEX pool with less than this can't take a 1 SOL trade without moving the price a lot
 MIN_MCAP_USD = 10_000  # the same floor for tokens still on their pump.fun bonding curve, which has no pool to measure
 DROP_AFTER = int(os.environ.get("DROP_AFTER") or 10)
-CHASE = float(os.environ.get("CHASE_PCT") or 15) / 100
+CHASE = float(os.environ.get("CHASE_PCT") or 30) / 100
 TOP10_MAX = float(os.environ.get("TOP10_MAX_PCT") or 40) / 100
 
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC") or ""
