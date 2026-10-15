@@ -195,8 +195,8 @@ def main():
     rows = []
     for w, (swaps, rate, span) in hist.items():
         r = evaluate(w, swaps or [], rate, span, prices)
-        if swaps is None:
-            r["flags"] = ["too busy to follow"]
+        if swaps is None or (not r["tokens"] and span < 1):
+            r["flags"] = ["too busy to follow"]  # skipped, or so crowded by other wallets' transactions that its own trades weren't reached
         r["source"] = ("watchlist" if w in watched else "kolscan" if w in KOLS else "early" if w in early
                        else "leaderboard" if w in traders else "followed")
         if w in watched and watched[w].get("note"):
