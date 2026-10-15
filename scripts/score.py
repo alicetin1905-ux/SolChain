@@ -27,7 +27,7 @@ KOL_MIN_WIN = 0.4       # and the share of them that won
 KOL_MAX_TRADES_PER_DAY = 25  # busier traders are crowded by copy bots
 MIN_TOKENS = 5          # fewer tokens than this is too small a sample to judge
 MIN_WIN_RATE = 30       # % of copied tokens that must have made money
-BOT_TXS_PER_DAY = 150   # signing more transactions a day than this looks like a bot
+BOT_TOKENS_PER_DAY = 50  # trading more different tokens a day than this looks like a bot (splitting one trade into many swaps is fine)
 MIN_HOLD_SEC = 60       # a median hold shorter than this can't be copied in time
 BUSY_TXS_PER_DAY = 2000 # successful transactions naming a wallet a day beyond which it is not read at all
 SIG_PAGES = 5           # signature pages (1000 each) to look through per wallet
@@ -153,7 +153,7 @@ def evaluate(wallet, swaps, tx_per_day, span_days, prices, supply=None, min_mcap
     holds.sort()
     median_hold = holds[len(holds) // 2] if holds else None
     flags = []
-    if tx_per_day > BOT_TXS_PER_DAY:
+    if span_days and (tokens + too_small) / span_days > BOT_TOKENS_PER_DAY:
         flags.append("bot-like activity")
     if median_hold is not None and median_hold < MIN_HOLD_SEC:
         flags.append("flips too fast to copy")
@@ -219,7 +219,7 @@ def main():
     selected = [r["wallet"] for r in rows if not r["flags"]][:P.FOLLOW]
     json.dump({"updatedAt": P.now_iso(), "days": DAYS, "walletTxs": WALLET_TXS, "slippagePct": P.SLIP * 100, "feeSol": P.FEE_SOL,
                "tradeSol": P.TRADE_SOL, "rules": {"minTokens": MIN_TOKENS, "minWinRatePct": MIN_WIN_RATE,
-               "maxTxPerDay": BOT_TXS_PER_DAY, "minHoldSec": MIN_HOLD_SEC}, "selected": selected, "wallets": rows},
+               "maxTokensPerDay": BOT_TOKENS_PER_DAY, "minHoldSec": MIN_HOLD_SEC}, "selected": selected, "wallets": rows},
               open(f"{P.DATA}/scores.json", "w"))
     print(f"{len(rows)} wallets scored, {len(selected)} pass every rule", file=sys.stderr)
 
