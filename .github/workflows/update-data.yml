@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main  # a queued run must start from the newest data, not the commit it was queued on
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main  # a queued run must start from the newest data, not the commit it was queued on
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -36,5 +38,6 @@ jobs:
           git add data/paper.json data/paper_state.json
           git diff --cached --quiet && exit 0
           git commit -m "Update paper copy-trade"
-          git pull --rebase origin main
+          # the Mac engine owns this data while it runs: if it published meanwhile, keep its version
+          git pull --rebase origin main || { git rebase --abort; echo "newer paper data from the live engine; nothing to publish"; exit 0; }
           git push
