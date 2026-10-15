@@ -13,7 +13,7 @@ Settings (environment):
   WALLET_TXS     transactions to read per wallet (default 250)
   DAYS           history window in days (default 30)
   SCORE_ONLY     space-separated wallets to score now; their rows are merged into the existing scores
-  KOL_MAX        quiet traders from the kolscan.io leaderboards to add as candidates (default 25)
+  KOL_MAX        quiet traders from the kolscan.io leaderboards to add as candidates (default 50)
 """
 import collections, json, os, re, sys, time, urllib.request
 import paper as P
@@ -21,7 +21,7 @@ import paper as P
 CANDIDATES = int(os.environ.get("CANDIDATES") or 30)
 WALLET_TXS = int(os.environ.get("WALLET_TXS") or 250)
 DAYS = int(os.environ.get("DAYS") or 30)
-KOL_MAX = int(os.environ.get("KOL_MAX") or 25)  # Kolscan traders to score per run
+KOL_MAX = int(os.environ.get("KOL_MAX") or 50)  # Kolscan traders to score per run
 KOL_MIN_TRADES = 10     # Kolscan wins + losses needed before a trader is worth scoring
 KOL_MIN_WIN = 0.4       # and the share of them that won
 KOL_MAX_TRADES_PER_DAY = 25  # busier traders are crowded by copy bots
