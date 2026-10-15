@@ -27,7 +27,9 @@ echo "3/4 GitHub access"
 command -v gh >/dev/null && gh auth setup-git >/dev/null 2>&1 || true
 git -C "$REPO" config user.name >/dev/null || git -C "$REPO" config user.name "SolChain live engine"
 git -C "$REPO" config user.email >/dev/null || git -C "$REPO" config user.email "solchain-live@users.noreply.github.com"
-if ! git -C "$REPO" push --dry-run -q origin HEAD:main 2>/dev/null; then
+# a dry run to an unused branch tests access only: pushing to main itself is refused whenever GitHub has newer data
+if ! err=$(git -C "$REPO" push --dry-run -q origin HEAD:refs/heads/solchain-access-check 2>&1); then
+  echo "$err"
   echo "This Mac can't push to GitHub yet. Run 'gh auth login' (brew install gh), then run this script again."
   exit 1
 fi
