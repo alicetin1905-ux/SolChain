@@ -116,7 +116,7 @@ def history(wallet, sp):
     return sorted(swaps, key=lambda x: x["time"]), signed / span(ok) if ok else 0, span(ok)
 
 
-def evaluate(wallet, swaps, tx_per_day, span_days, prices):
+def evaluate(wallet, swaps, tx_per_day, span_days, prices, supply=None, min_mcap_sol=0):
     per = collections.OrderedDict()
     for s in swaps:
         t = per.setdefault(s["mint"], {"buySol": 0.0, "buyTok": 0.0, "sellSol": 0.0, "sellTok": 0.0, "first": None, "firstSell": None})
@@ -127,18 +127,21 @@ def evaluate(wallet, swaps, tx_per_day, span_days, prices):
             t["sellSol"] += s["sol"]; t["sellTok"] += -s["dtok"]
             t["firstSell"] = t["firstSell"] or s["time"]
     own_pnl = copy_pnl = 0.0
-    tokens = wins = copy_wins = 0
+    tokens = wins = copy_wins = too_small = 0
     holds = []
     for mint, t in per.items():
         if t["buyTok"] <= 0:
             continue
-        tokens += 1
         cur = prices.get(mint, 0.0)
         left = max(0.0, t["buyTok"] - t["sellTok"])
         pnl = t["sellSol"] + left * cur - t["buySol"]
         own_pnl += pnl
-        wins += pnl > 0
         b = t["buySol"] / t["buyTok"]
+        if (supply or {}).get(mint) and b * supply[mint] < min_mcap_sol:
+            too_small += 1  # bought below the engine's market cap floor: the engine wouldn't have copied it
+            continue
+        tokens += 1
+        wins += pnl > 0
         f = min(1.0, t["sellTok"] / t["buyTok"])
         s_px = t["sellSol"] / t["sellTok"] if t["sellTok"] else 0
         ret = (f * s_px * (1 - P.SLIP) + (1 - f) * cur * (1 - P.SLIP)) / (b * (1 + P.SLIP))
@@ -164,7 +167,7 @@ def evaluate(wallet, swaps, tx_per_day, span_days, prices):
     return {"wallet": wallet, "tokens": tokens, "swaps": len(swaps), "txPerDay": round(tx_per_day, 1),
             "daysCovered": round(span_days, 1), "ownPnlSol": round(own_pnl, 3), "ownWinRatePct": round(100 * wins / tokens, 1) if tokens else None,
             "copyPnlSol": round(copy_pnl, 3), "copyPerTokenSol": round(copy_pnl / tokens, 4) if tokens else None,
-            "copyWinRatePct": copy_win_rate, "medianHoldSec": median_hold, "flags": flags}
+            "copyWinRatePct": copy_win_rate, "medianHoldSec": median_hold, "tooSmallTokens": too_small, "flags": flags}
 
 
 KOLS = {}
@@ -187,7 +190,9 @@ def main():
     mints = {s["mint"] for swaps, _, _ in hist.values() for s in swaps or []}
     info = P.token_info(mints) if mints else {}
     # tokens with no pair, or too little liquidity to sell into, are worth 0: an illiquid pool's price can't be cashed out
-    prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items() if (i.get("liquidityUsd") or 0) >= 10_000}
+    prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items() if P.tradable(i)}
+    # total supply from market cap and price, to tell each buy's market cap; a token without a pair now keeps counting
+    supply = {m: i["marketCapUsd"] / i["priceUsd"] for m, i in info.items() if i.get("priceUsd") and i.get("marketCapUsd")}
     try:
         traders = {r["wallet"] for r in json.load(open(f"{P.DATA}/traders.json"))}
     except FileNotFoundError:
@@ -196,7 +201,7 @@ def main():
     watched = {w["wallet"]: w for w in watchlist()}
     rows = []
     for w, (swaps, rate, span) in hist.items():
-        r = evaluate(w, swaps or [], rate, span, prices)
+        r = evaluate(w, swaps or [], rate, span, prices, supply, P.MIN_MCAP_USD / sp)
         if swaps is None or (not r["tokens"] and span < 1):
             r["flags"] = ["too busy to follow"]  # skipped, or so crowded by other wallets' transactions that its own trades weren't reached
         r["source"] = ("watchlist" if w in watched else "kolscan" if w in KOLS else "early" if w in early

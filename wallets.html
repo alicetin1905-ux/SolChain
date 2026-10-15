@@ -84,10 +84,10 @@
   <section class="card method" id="method">
     <h2>How wallets are judged</h2>
     <ul>
-      <li><b>Candidates.</b> Your watchlist, the best traders of the past week and month on <a href="https://kolscan.io/leaderboard">Kolscan</a> (20+ trades, 40%+ won), the leaderboard's best non-bot wallets, the repeat early buyers, the wallets the engine follows now and last run's picks.</li>
+      <li><b>Candidates.</b> Your watchlist, the best traders of the past week and month on <a href="https://kolscan.io/leaderboard">Kolscan</a> (quiet traders: 10+ trades, 40%+ won, at most 25 trades a day, most profit per trade first), the leaderboard's best non-bot wallets, the repeat early buyers, the wallets the engine follows now and last run's picks.</li>
       <li><b>History.</b> Up to <span id="m-txs">250</span> of each wallet's most recent transactions from the last <span id="m-days">30</span> days are read and its swaps worked out per token. Very active wallets therefore cover fewer days.</li>
       <li><b>Checks.</b> A wallet is copied only when it traded at least <span id="m-min-tokens">5</span> tokens, at least <span id="m-win">30%</span> of its copies would have made money, the copy backtest is positive, it signs no more than <span id="m-tx">150</span> transactions a day, and it usually holds a token for at least <span id="m-hold">60</span> seconds. A wallet named in more than 2,000 successful transactions a day is not read at all: it is a bot, or a famous trader swarmed by copy bots that would always buy before you.</li>
-      <li><b>Copying.</b> The engine follows the 10 best that pass, by backtest, plus up to 5 early buyers that pass. It drops a wallet whose live copies keep losing.</li>
+      <li><b>Copying.</b> The engine follows the 10 best that pass, by backtest. The backtest leaves out tokens bought below a $10k market cap, since the engine would not copy those. It drops a wallet whose live copies keep losing.</li>
       <li><b>Limits.</b> The backtest uses the wallet's own prices plus <span id="m-slip">3%</span> slippage, not the price a copier would really have got a few seconds later.</li>
     </ul>
   </section>

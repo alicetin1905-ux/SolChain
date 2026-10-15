@@ -37,7 +37,7 @@ Not financial advice.
 
 `copy.html` shows a simulated copy-trading engine (`scripts/paper.py`, run hourly by `.github/workflows/paper-trade.yml`).
 It follows the top 10 non-bot wallets on the leaderboard and copies their swaps with 1 SOL per buy:
-a buy opens one position per wallet and token (tokens under $25k liquidity are skipped), and a sell by that wallet sells the same share of the copy.
+a buy opens one position per wallet and token (tokens with under $10k liquidity, or under $10k market cap while still on the pump.fun bonding curve, are skipped), and a sell by that wallet sells the same share of the copy.
 Each fill is 3% worse than the wallet's own price plus 0.001 SOL in fees. No real trades are made.
 Tune it with the `FOLLOW`, `TRADE_SOL`, `SLIPPAGE_PCT` and `FEE_SOL` environment variables in the workflow.
 
@@ -48,7 +48,7 @@ It watches the wallets in real time, prices every copy with a Jupiter quote, and
 
 - `scripts/early.py` (daily, `early-buyers.yml`) finds wallets that were among the first buyers of several pumped pump.fun tokens, from each token's bonding-curve history. Results: `early.html`.
 - `scripts/score.py` (daily, `score-wallets.yml`) reads up to 250 swaps from the last 30 days of each candidate wallet and backtests copying it. Wallets that look like bots, flip faster than a minute, traded fewer than 5 tokens or lose in the backtest are left out. Results: `wallets.html`.
-- The copy-trade engine follows the 10 best scored wallets plus up to 5 early buyers that pass the same checks, drops a wallet after 10 losing copies, skips risky tokens (mint or freeze authority kept, concentrated holders, under $25k liquidity) and buys that already ran 15% past the wallet's price, and holds every copy in four exit strategies side by side.
+- The copy-trade engine follows the 10 best scored wallets, drops a wallet after 10 losing copies, skips risky tokens (mint or freeze authority kept, concentrated holders, under $10k liquidity or market cap) and buys that already ran 15% past the wallet's price, and holds every copy in four exit strategies side by side.
 
 ## On the iPhone home screen
 

@@ -92,7 +92,7 @@
       <li><b>Tokens.</b> Every pump.fun token starts on its own bonding curve before it moves to a regular pool. The first trades on that curve are the launch.</li>
       <li><b>First buyers.</b> For each token, the first <span id="m-buyers">60</span> wallets that bought on the curve are recorded, in order, with their entry price. The token's creator is left out.</li>
       <li><b>Snipers.</b> A buy in the launch block or the next one is flagged as a sniper or a bundle, often the creator's own wallets or bots. A wallet that sniped most of its tokens is hidden by default and never copied.</li>
-      <li><b>Copying.</b> The 5 best repeat early buyers that are not snipers are added to the copy-trade engine, next to the leaderboard's top 10.</li>
+      <li><b>Copying.</b> Early buyers are not copied: they buy tokens of a few thousand dollars in their first minutes, too small and too fast to copy. They are scored on the Wallets page like any other candidate.</li>
       <li><b>Limits.</b> Tokens launched elsewhere than pump.fun, and tokens with more than 20,000 trades on their curve, are not analysed. Being early does not mean the wallet sold well; the copy-trade page shows what following it is worth.</li>
     </ul>
   </section>

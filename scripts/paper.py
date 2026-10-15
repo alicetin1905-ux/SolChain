@@ -8,7 +8,7 @@ Settings (environment):
   SOL_RPC        Solana RPC URL (falls back to the free public endpoint)
   FOLLOW         number of wallets to follow: the best scored ones from data/scores.json,
                  or the leaderboard's top when there are no scores yet (default 10)
-  EARLY_FOLLOW   number of repeat early buyers from data/early.json to follow too (default 5)
+  EARLY_FOLLOW   number of repeat early buyers from data/early.json to follow too (default 0)
   DROP_AFTER     stop following a wallet once this many copies closed at a net loss (default 10)
   CHASE_PCT      skip a copy when the live price is this much above the wallet's own (default 15)
   TOP10_MAX_PCT  skip tokens whose 10 largest holders, pool left out, own more than this (default 40)
@@ -25,11 +25,12 @@ DS = "https://api.dexscreener.com"
 WSOL = "So11111111111111111111111111111111111111112"
 STABLES = {"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY5NNmFfeQe36Ci"}
 FOLLOW = int(os.environ.get("FOLLOW") or 10)
-EARLY_FOLLOW = int(os.environ.get("EARLY_FOLLOW") or 5)
+EARLY_FOLLOW = int(os.environ.get("EARLY_FOLLOW") or 0)  # early buyers snipe tokens of a few $1000s: too early to copy
 TRADE_SOL = float(os.environ.get("TRADE_SOL") or 1)
 SLIP = float(os.environ.get("SLIPPAGE_PCT") or 3) / 100
 FEE_SOL = float(os.environ.get("FEE_SOL") or 0.001)
-MIN_LIQ_USD = 25_000
+MIN_LIQ_USD = 10_000   # a DEX pool with less than this can't take a 1 SOL trade without moving the price a lot
+MIN_MCAP_USD = 10_000  # the same floor for tokens still on their pump.fun bonding curve, which has no pool to measure
 DROP_AFTER = int(os.environ.get("DROP_AFTER") or 10)
 CHASE = float(os.environ.get("CHASE_PCT") or 15) / 100
 TOP10_MAX = float(os.environ.get("TOP10_MAX_PCT") or 40) / 100
@@ -112,7 +113,8 @@ def sol_usd():
 
 
 def token_info(mints):
-    """Current price (USD), liquidity and symbol of each mint's deepest Dexscreener pair."""
+    """Current price (USD), liquidity, market cap and symbol of each mint's deepest Dexscreener pair.
+    "curve" marks a token still on its pump.fun bonding curve (Dexscreener gives such a pair no liquidity)."""
     out, mints = {}, list(mints)
     for i in range(0, len(mints), 30):
         for p in get(f"{DS}/tokens/v1/solana/{','.join(mints[i:i+30])}"):
@@ -120,8 +122,17 @@ def token_info(mints):
             liq = (p.get("liquidity") or {}).get("usd") or 0
             if m not in out or liq > out[m]["liquidityUsd"]:
                 out[m] = {"priceUsd": float(p.get("priceUsd") or 0), "liquidityUsd": liq,
+                          "marketCapUsd": float(p.get("marketCap") or p.get("fdv") or 0),
+                          "curve": p.get("dexId") == "pumpfun" and not liq,
                           "symbol": p["baseToken"]["symbol"], "url": p.get("url")}
     return out
+
+
+def tradable(ti):
+    """Whether a 1 SOL copy can be bought and sold in this token without moving its price much."""
+    if ti.get("curve"):
+        return ti.get("marketCapUsd", 0) >= MIN_MCAP_USD
+    return ti.get("liquidityUsd", 0) >= MIN_LIQ_USD
 
 
 def parse_swap(tx, wallet, sol_price):
@@ -356,7 +367,7 @@ def apply_events(st, events, info, fill=model_fill):
             if mine or not st["wallets"][w].get("following"):
                 continue
             skip = None
-            if ti.get("liquidityUsd", 0) < MIN_LIQ_USD:
+            if not tradable(ti):
                 skip = "lowLiquidity"
             else:
                 skip = token_risk(st, mint)
