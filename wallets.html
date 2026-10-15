@@ -84,7 +84,7 @@
   <section class="card method" id="method">
     <h2>How wallets are judged</h2>
     <ul>
-      <li><b>Candidates.</b> Your watchlist, the leaderboard's best non-bot wallets, the repeat early buyers, the wallets the engine follows now and last run's picks.</li>
+      <li><b>Candidates.</b> Your watchlist, the best traders of the past week and month on <a href="https://kolscan.io/leaderboard">Kolscan</a> (20+ trades, 40%+ won), the leaderboard's best non-bot wallets, the repeat early buyers, the wallets the engine follows now and last run's picks.</li>
       <li><b>History.</b> Up to <span id="m-txs">250</span> of each wallet's most recent transactions from the last <span id="m-days">30</span> days are read and its swaps worked out per token. Very active wallets therefore cover fewer days.</li>
       <li><b>Checks.</b> A wallet is copied only when it traded at least <span id="m-min-tokens">5</span> tokens, at least <span id="m-win">30%</span> of its copies would have made money, the copy backtest is positive, it makes no more than <span id="m-tx">150</span> transactions a day, and it usually holds a token for at least <span id="m-hold">60</span> seconds.</li>
       <li><b>Copying.</b> The engine follows the 10 best that pass, by backtest, plus up to 5 early buyers that pass. It drops a wallet whose live copies keep losing.</li>
@@ -107,7 +107,7 @@
   const dur = (s) => (s == null ? '—' : s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : s < 172800 ? `${d3.format('.1f')(s / 3600)} h` : `${Math.round(s / 86400)} d`);
   const tone = (el, v) => { el.classList.toggle('gain', v > 0); el.classList.toggle('loss', v < 0); return el; };
   const emptyRow = (tb, cols, text) => { const td = tb.insertRow().insertCell(); td.colSpan = cols; const d = document.createElement('div'); d.className = 'empty'; d.textContent = text; td.append(d); };
-  const SRC = { leaderboard: 'Leaderboard', early: 'Early buyer', followed: 'Already followed', watchlist: 'Watchlist' };
+  const SRC = { leaderboard: 'Leaderboard', early: 'Early buyer', followed: 'Already followed', watchlist: 'Watchlist', kolscan: 'Kolscan' };
 
   let S = null, followed = new Set(), onlyPass = false, onlyWatch = false;
 

@@ -1,6 +1,6 @@
 """Wallet scores: judge candidate wallets on their recent history instead of one snapshot.
 
-Candidates are the leaderboard's best non-bot wallets, the repeat early buyers and the wallets the
+Candidates are the watchlist, the best Kolscan traders, the leaderboard's best non-bot wallets, the repeat early buyers and the wallets the
 copy-trade engine already follows. For each, this reads up to WALLET_TXS of its swaps from the last
 DAYS days, works out its own results per token, and backtests copying it: buying 1 SOL of each token
 at its first buy price plus slippage, selling the same share whenever it sold at its price minus
@@ -13,13 +13,17 @@ Settings (environment):
   WALLET_TXS     transactions to read per wallet (default 250)
   DAYS           history window in days (default 30)
   SCORE_ONLY     space-separated wallets to score now; their rows are merged into the existing scores
+  KOL_MAX        traders from the kolscan.io week and month leaderboards to add as candidates (default 25)
 """
-import collections, json, os, sys, time
+import collections, json, os, re, sys, time, urllib.request
 import paper as P
 
 CANDIDATES = int(os.environ.get("CANDIDATES") or 30)
 WALLET_TXS = int(os.environ.get("WALLET_TXS") or 250)
 DAYS = int(os.environ.get("DAYS") or 30)
+KOL_MAX = int(os.environ.get("KOL_MAX") or 25)  # Kolscan traders to score per run
+KOL_MIN_TRADES = 20     # Kolscan wins + losses needed before a trader is worth scoring
+KOL_MIN_WIN = 0.4       # and the share of them that won
 MIN_TOKENS = 5          # fewer tokens than this is too small a sample to judge
 MIN_WIN_RATE = 30       # % of copied tokens that must have made money
 BOT_TXS_PER_DAY = 150   # more transactions a day than this looks like a bot
@@ -34,8 +38,30 @@ def watchlist():
         return []
 
 
+def kolscan():
+    """Weekly and monthly leaderboard of kolscan.io (known traders, with profit and win/loss counts), best first.
+    The page embeds its leaderboard data; one request a day."""
+    try:
+        req = urllib.request.Request("https://kolscan.io/leaderboard", headers={"user-agent": "Mozilla/5.0 (solchain wallet scoring)"})
+        with urllib.request.urlopen(req, timeout=20, context=P.SSL_CTX) as r:
+            page = r.read().decode("utf-8", "replace").replace('\\"', '"')
+    except Exception as e:
+        print(f"  kolscan unavailable: {e}", file=sys.stderr)
+        return {}
+    rows = re.findall(r'"wallet_address":"([1-9A-HJ-NP-Za-km-z]{32,44})","name":"([^"]*)",[^{}]*?"profit":(-?[\d.e+-]+),"wins":(\d+),"losses":(\d+),"timeframe":(\d+)', page)
+    best = {}
+    for wallet, name, profit, wins, losses, tf in rows:
+        wins, losses, tf, profit = int(wins), int(losses), int(tf), float(profit)
+        if tf not in (7, 30) or wins + losses < KOL_MIN_TRADES or wins / (wins + losses) < KOL_MIN_WIN:
+            continue
+        note = f"Kolscan {name}: {profit:+.0f} SOL in {tf}d, {wins}W/{losses}L"
+        if wallet not in best or tf > best[wallet]["tf"]:
+            best[wallet] = {"tf": tf, "profit": profit, "note": note}
+    return dict(sorted(best.items(), key=lambda kv: (-kv[1]["tf"], -kv[1]["profit"]))[:KOL_MAX])
+
+
 def candidates():
-    out = [w["wallet"] for w in watchlist()]
+    out = [w["wallet"] for w in watchlist()] + list(KOLS)
     try:
         traders = json.load(open(f"{P.DATA}/traders.json"))
         out += [r["wallet"] for r in sorted((r for r in traders if r["botLike"] == "no"), key=lambda r: -r["pnlUsd"])[:CANDIDATES]]
@@ -55,7 +81,8 @@ def candidates():
 
 
 def history(wallet, sp):
-    """The wallet's swaps in the window (oldest first), its transactions per day, and the days the swaps cover."""
+    """The wallet's swaps in the window (oldest first), its transactions per day, and the days the swaps cover.
+    Swaps are None for a wallet so active it can only be a bot; its transactions are then not read."""
     since = time.time() - DAYS * 86400
     sigs, before = [], None
     while len(sigs) < WALLET_TXS * 4:
@@ -64,16 +91,18 @@ def history(wallet, sp):
         if len(page) < 1000 or (page[-1].get("blockTime") or 0) < since:
             break
         before = page[-1]["signature"]
-    total = len(sigs)
+    span = lambda xs: max(1 / 24, (time.time() - min((x.get("blockTime") or time.time()) for x in xs)) / 86400) if xs else 0
+    rate = len(sigs) / span(sigs) if sigs else 0
+    if rate > BOT_TXS_PER_DAY * 2:
+        return None, rate, span(sigs)  # clearly a bot: don't spend credits reading its transactions
     ok = [s for s in sigs if s.get("err") is None][:WALLET_TXS]
     swaps = []
     for s, tx in zip(ok, P.POOL.map(lambda s: P.fetch_tx(s["signature"]), ok)):
         sw = tx and P.parse_swap(tx, wallet, sp)
         if sw:
             swaps.append({**sw, "time": tx.get("blockTime") or s.get("blockTime") or 0})
-    span = lambda xs: max(1 / 24, (time.time() - min((x.get("blockTime") or time.time()) for x in xs)) / 86400) if xs else 0
     # activity rate over every transaction found; coverage over the ones actually read
-    return sorted(swaps, key=lambda x: x["time"]), total / span(sigs) if sigs else 0, span(ok)
+    return sorted(swaps, key=lambda x: x["time"]), rate, span(ok)
 
 
 def evaluate(wallet, swaps, tx_per_day, span_days, prices):
@@ -127,17 +156,25 @@ def evaluate(wallet, swaps, tx_per_day, span_days, prices):
             "copyWinRatePct": copy_win_rate, "medianHoldSec": median_hold, "flags": flags}
 
 
+KOLS = {}
+
+
 def main():
+    global KOLS
     sp = P.sol_usd()
     only = (os.environ.get("SCORE_ONLY") or "").split()
+    if not only:
+        KOLS = kolscan()
+        print(f"{len(KOLS)} Kolscan traders with {KOL_MIN_TRADES}+ trades and {KOL_MIN_WIN:.0%}+ wins", file=sys.stderr)
     cands = only or candidates()
     print(f"scoring {len(cands)} wallets over {DAYS} days, up to {WALLET_TXS} transactions each", file=sys.stderr)
     hist = {}
     for i, w in enumerate(cands, 1):
         swaps, rate, span = history(w, sp)
         hist[w] = (swaps, rate, span)
-        print(f"  {i}/{len(cands)} {w[:6]}: {len(swaps)} swaps over {span:.1f} days, {rate:.0f} transactions a day", file=sys.stderr)
-    mints = {s["mint"] for swaps, _, _ in hist.values() for s in swaps}
+        print(f"  {i}/{len(cands)} {w[:6]}: " + (f"{len(swaps)} swaps over {span:.1f} days" if swaps is not None else "skipped as a bot")
+              + f", {rate:.0f} transactions a day", file=sys.stderr)
+    mints = {s["mint"] for swaps, _, _ in hist.values() for s in swaps or []}
     info = P.token_info(mints) if mints else {}
     # tokens with no pair, or too little liquidity to sell into, are worth 0: an illiquid pool's price can't be cashed out
     prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items() if (i.get("liquidityUsd") or 0) >= 10_000}
@@ -149,10 +186,15 @@ def main():
     watched = {w["wallet"]: w for w in watchlist()}
     rows = []
     for w, (swaps, rate, span) in hist.items():
-        r = evaluate(w, swaps, rate, span, prices)
-        r["source"] = "watchlist" if w in watched else "early" if w in early else "leaderboard" if w in traders else "followed"
+        r = evaluate(w, swaps or [], rate, span, prices)
+        if swaps is None:
+            r["flags"] = ["bot-like activity"]
+        r["source"] = ("watchlist" if w in watched else "kolscan" if w in KOLS else "early" if w in early
+                       else "leaderboard" if w in traders else "followed")
         if w in watched and watched[w].get("note"):
             r["note"] = watched[w]["note"]
+        elif w in KOLS:
+            r["note"] = KOLS[w]["note"]
         r["scoredAt"] = P.now_iso()
         rows.append(r)
     if only:  # a quick run for a few wallets keeps everyone else's last score
