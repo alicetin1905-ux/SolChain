@@ -176,7 +176,7 @@ KOLS = {}
 def main():
     global KOLS
     sp = P.sol_usd()
-    only = (os.environ.get("SCORE_ONLY") or "").split()
+    only = [w for w in (os.environ.get("SCORE_ONLY") or "").split() if re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", w)]
     KOLS = kolscan()  # also labels Kolscan traders scored with SCORE_ONLY
     print(f"{len(KOLS)} quiet Kolscan traders with {KOL_MIN_TRADES}+ trades and {KOL_MIN_WIN:.0%}+ wins", file=sys.stderr)
     cands = only or candidates()
