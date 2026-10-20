@@ -71,8 +71,16 @@ def kolscan():
     return dict(sorted(best.items(), key=lambda kv: -kv[1]["perTrade"])[:KOL_MAX])
 
 
+def kol_scan():
+    """Promising traders from the last full scan of the Kolscan list (scripts/kolscan_scan.py)."""
+    try:
+        return {r["wallet"]: r for r in json.load(open(f"{P.DATA}/kol_scan.json")).get("promising", [])}
+    except FileNotFoundError:
+        return {}
+
+
 def candidates():
-    out = [w["wallet"] for w in watchlist()] + list(KOLS)
+    out = [w["wallet"] for w in watchlist()] + list(KOLS) + list(kol_scan())
     try:
         traders = json.load(open(f"{P.DATA}/traders.json"))
         out += [r["wallet"] for r in sorted((r for r in traders if r["botLike"] == "no"), key=lambda r: -r["pnlUsd"])[:CANDIDATES]]
@@ -252,6 +260,8 @@ def main():
     sp = P.sol_usd()
     only = [w for w in (os.environ.get("SCORE_ONLY") or "").split() if re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", w)]
     KOLS = kolscan()  # also labels Kolscan traders scored with SCORE_ONLY
+    for w, r in kol_scan().items():
+        KOLS.setdefault(w, {"note": f"Kolscan {r['name']} (found in the full list scan)"})
     print(f"{len(KOLS)} quiet Kolscan traders with {KOL_MIN_TRADES}+ trades and {KOL_MIN_WIN:.0%}+ wins", file=sys.stderr)
     cands = only or candidates()
     print(f"scoring {len(cands)} wallets over {DAYS} days, up to {WALLET_TXS} transactions each", file=sys.stderr)
