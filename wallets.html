@@ -57,7 +57,7 @@
 
   <section class="card" id="scores">
     <h2>Scored wallets</h2>
-    <p class="note">"Copy backtest" is what copying the wallet would have made over the window: 1 SOL into every token it bought, sold in the same shares as it sold, with slippage and fees, and anything left valued at today's price. Wallets that pass every check come first.</p>
+    <p class="note">"Copy backtest" is what copying the wallet would have made over the window: 1 SOL into every token it bought, sold in the same shares as it sold, at the price a copy really gets ("Copy cost") and after fees, with anything left valued at today's price. "Live copies" is what the paper engine's copies of it made so far. Wallets that pass every check come first.</p>
     <div class="controls">
       <label class="toggle" for="only-pass"><input id="only-pass" type="checkbox"> Only wallets that pass</label>
       <label class="toggle" for="only-watch"><input id="only-watch" type="checkbox"> Only my watchlist</label>
@@ -73,7 +73,8 @@
           <th class="plain num hide-narrow"><span>Tokens</span></th>
           <th class="plain num hide-narrow"><span>Own PnL</span></th>
           <th class="plain num hide-narrow"><span>Median hold</span></th>
-          <th class="plain num hide-narrow"><span>Tx a day</span></th>
+          <th class="plain num hide-narrow"><span>Copy cost</span></th>
+          <th class="plain num"><span>Live copies</span></th>
           <th class="plain"><span>Verdict</span></th>
         </tr></thead>
         <tbody></tbody>
@@ -88,7 +89,8 @@
       <li><b>History.</b> Up to <span id="m-txs">250</span> of each wallet's most recent transactions from the last <span id="m-days">30</span> days are read and its swaps worked out per token. Very active wallets therefore cover fewer days.</li>
       <li><b>Checks.</b> A wallet is copied only when it traded at least <span id="m-min-tokens">5</span> tokens, at least <span id="m-win">30%</span> of its copies would have made money, the copy backtest is positive, it trades no more than <span id="m-tx">50</span> different tokens a day, and it usually holds a token for at least <span id="m-hold">60</span> seconds. A wallet named in more than 2,000 successful transactions a day is not read at all: it is a bot, or a famous trader swarmed by copy bots that would always buy before you.</li>
       <li><b>Copying.</b> The engine follows the 10 best that pass, by backtest. The backtest leaves out tokens bought below a $5k market cap, since the engine would not copy those. It drops a wallet whose live copies keep losing.</li>
-      <li><b>Limits.</b> The backtest uses the wallet's own prices plus <span id="m-slip">3%</span> slippage, not the price a copier would really have got a few seconds later.</li>
+      <li><b>Copy cost.</b> The backtest buys and sells at the wallet's own prices, made worse by what copying really cost: the live engine compares every Jupiter quote with the wallet's own price. A wallet with 3 or more live copies uses its own median; others use the median of all copies.</li>
+      <li><b>Second read.</b> Wallets that pass are read again, up to 1,000 transactions back, so one lucky day can't carry them. A wallet whose 5 or more live copies lost money in total is dropped as "losing live"; one whose 5 or more live copies made money stays, whatever its backtest says.</li>
     </ul>
   </section>
 
@@ -132,7 +134,7 @@
     $('m-txs').textContent = S.walletTxs; $('m-days').textContent = S.days;
     $('m-min-tokens').textContent = S.rules.minTokens; $('m-win').textContent = S.rules.minWinRatePct + '%';
     $('m-tx').textContent = S.rules.maxTokensPerDay ?? S.rules.maxTxPerDay; $('m-hold').textContent = S.rules.minHoldSec;
-    $('m-slip').textContent = d3.format('.0f')(S.slippagePct) + '%';
+    // (the old fixed-slippage note is gone: copy cost now comes from measured fills)
     const watch = rows.filter((r) => r.source === 'watchlist');
     $('watch-count').textContent = watch.length
       ? `${watch.length} wallet${watch.length === 1 ? '' : 's'} on your watchlist, ${watch.filter((r) => !r.flags.length).length} passing every check.`
@@ -143,7 +145,7 @@
     const tb = document.querySelector('#score-table tbody'); tb.replaceChildren();
     const rows = S.wallets.filter((r) => (!onlyPass || !r.flags.length) && (!onlyWatch || r.source === 'watchlist'));
     $('count').textContent = `${rows.length} wallets`;
-    if (!rows.length) return emptyRow(tb, 9, 'No wallet passes every check in this run.');
+    if (!rows.length) return emptyRow(tb, 10, 'No wallet passes every check in this run.');
     for (const r of rows) {
       const tr = tb.insertRow();
       const w = tr.insertCell(); w.className = 'data wallet';
@@ -157,11 +159,15 @@
       n(r.tokens, 'hide-narrow');
       tone(n(sol(r.ownPnlSol), 'hide-narrow'), r.ownPnlSol);
       n(dur(r.medianHoldSec), 'hide-narrow');
-      n(d3.format(',.0f')(r.txPerDay), 'hide-narrow muted');
+      const cost = n(r.buyCostPct == null ? '—' : `+${d3.format('.0f')(r.buyCostPct)}%`, 'hide-narrow muted');
+      cost.title = r.costSource === 'measured' ? 'Measured on this wallet\'s live copies: how much more a copy paid than the wallet'
+        : 'Average of all live copies so far (this wallet has too few of its own)';
+      tone(n(r.liveCopies ? `${sol(r.livePnlSol)} (${r.liveCopies})` : '—'), r.livePnlSol || 0);
       const v = tr.insertCell(); const box = document.createElement('div'); box.className = 'flags';
       if (!r.flags.length) {
         const p = document.createElement('span'); p.className = 'pill ' + (followed.has(r.wallet) ? 'follow' : 'ok');
         p.textContent = followed.has(r.wallet) ? 'copied' : 'passes'; box.append(p);
+        if (r.provenLive) { const q = document.createElement('span'); q.className = 'pill ok'; q.textContent = 'proven live'; box.append(q); }
       }
       for (const f of r.flags) { const p = document.createElement('span'); p.className = 'pill' + (f.includes('bot') || f.includes('fast') || f.includes('busy') ? ' bot' : ''); p.textContent = f; box.append(p); }
       v.append(box);

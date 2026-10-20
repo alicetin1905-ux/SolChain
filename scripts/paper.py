@@ -328,14 +328,15 @@ def token_risk(st, mint):
     return reason
 
 
-def sell(st, p, q, px, when, src, reason, frac=None, lag=None, sig=None):
+def sell(st, p, q, px, when, src, reason, frac=None, lag=None, sig=None, leader_px=None):
     """Sell q tokens of a copy at px SOL each. Returns True when the position is now closed."""
     got = q * px - FEE_SOL
     p["qtyLeft"] -= q
     p["realizedSol"] += got
     st["trades"].append({"time": now_iso(when), "wallet": p["wallet"], "symbol": p["symbol"], "mint": p["mint"],
                          "strategy": p["strategy"], "side": "sell", "reason": reason, "sol": round(got, 4), "price": px,
-                         "fraction": round(frac, 3) if frac is not None else None, "fill": src, "lagSec": lag, "leaderSig": sig})
+                         "fraction": round(frac, 3) if frac is not None else None, "fill": src, "lagSec": lag, "leaderSig": sig,
+                         "leaderPrice": leader_px})
     recent = time.time() - when < RECENT_SEC
     if p["qtyLeft"] <= p["qty"] * 0.001:
         p["closedAt"] = now_iso(when)
@@ -372,11 +373,11 @@ def apply_events(st, events, info, fill=model_fill):
             else:
                 skip = token_risk(st, mint)
             px = src = None
+            leader_px = ev["sol"] / ev["dtok"]
             if not skip:
                 px, src = fill("buy", ev, None)
                 if not px:
                     continue
-                leader_px = ev["sol"] / ev["dtok"]
                 if src == "jupiter" and px > leader_px * (1 + CHASE):
                     skip = "chase"  # the price already ran away from the wallet's own entry
             if skip:
@@ -390,7 +391,8 @@ def apply_events(st, events, info, fill=model_fill):
                         del seen[old]
                 skips[skip] = skips.get(skip, 0) + 1
                 st["trades"].append({"time": now_iso(ev["time"]), "wallet": w, "symbol": ti.get("symbol") or mint[:4] + "…",
-                                     "mint": mint, "side": "skip", "reason": skip, "sol": 0, "lagSec": lag, "leaderSig": ev["sig"]})
+                                     "mint": mint, "side": "skip", "reason": skip, "sol": 0, "lagSec": lag, "leaderSig": ev["sig"],
+                                     "price": px, "fill": src, "leaderPrice": leader_px})
                 continue
             qty = (TRADE_SOL - FEE_SOL) / px
             sym = ti.get("symbol") or mint[:4] + "…"
@@ -407,7 +409,7 @@ def apply_events(st, events, info, fill=model_fill):
                                               "decimals": ev.get("decimals")}
                 st["trades"].append({"time": now_iso(ev["time"]), "wallet": w, "symbol": sym, "mint": mint, "strategy": strat,
                                      "side": "buy", "sol": round(TRADE_SOL, 4), "price": px, "fill": src, "lagSec": lag,
-                                     "leaderSig": ev["sig"]})
+                                     "leaderSig": ev["sig"], "leaderPrice": leader_px})
         elif mine:  # leader sold: every strategy still holding this copy sells the same share
             frac = min(1.0, abs(ev["dtok"]) / ev["pre"]) if ev["pre"] > 0 else 1.0
             qs = {p["strategy"]: (p["qtyLeft"] if frac > 0.98 else p["qtyLeft"] * frac) for p in mine}
@@ -417,7 +419,7 @@ def apply_events(st, events, info, fill=model_fill):
             if px is None:
                 continue
             for p in mine:
-                if sell(st, p, qs[p["strategy"]], px, ev["time"], src, "wallet sold", frac, lag, ev["sig"]):
+                if sell(st, p, qs[p["strategy"]], px, ev["time"], src, "wallet sold", frac, lag, ev["sig"], ev["sol"] / abs(ev["dtok"])):
                     del open_pos[(w, mint, p["strategy"])]
     st["positions"] = list(open_pos.values())
     if st.get("caughtUp"):

@@ -13,6 +13,7 @@ Settings (environment):
   WALLET_TXS     transactions to read per wallet (default 250)
   DAYS           history window in days (default 30)
   SCORE_ONLY     space-separated wallets to score now; their rows are merged into the existing scores
+  WALLET_TXS_DEEP transactions read again for wallets that pass the first read (default 1000)
   KOL_MAX        quiet traders from the kolscan.io leaderboards to add as candidates (default 50)
 """
 import collections, json, os, re, sys, time, urllib.request
@@ -31,6 +32,11 @@ BOT_TOKENS_PER_DAY = 50  # trading more different tokens a day than this looks l
 MIN_HOLD_SEC = 60       # a median hold shorter than this can't be copied in time
 BUSY_TXS_PER_DAY = 2000 # successful transactions naming a wallet a day beyond which it is not read at all
 SIG_PAGES = 5           # signature pages (1000 each) to look through per wallet
+WALLET_TXS_DEEP = int(os.environ.get("WALLET_TXS_DEEP") or 1000)  # second, longer read of the wallets that pass
+DEEP_SIG_PAGES = 12
+LIVE_MIN_COPIES = 5     # live copies needed before their result can fail a wallet
+GAP_MIN = 3             # measured fills needed before a wallet's own price gap replaces the average
+GAP_FETCH_MAX = 400     # wallet transactions fetched per run to learn the price of older copies
 
 
 def watchlist():
@@ -85,26 +91,26 @@ def candidates():
     return list(dict.fromkeys(out))
 
 
-def history(wallet, sp):
+def history(wallet, sp, txs=WALLET_TXS, pages=SIG_PAGES):
     """The wallet's swaps in the window (oldest first), the transactions it signs a day, and the days the swaps cover.
     Other wallets' transactions can name it too (famous traders are swarmed by copy bots), so activity is measured
     on the transactions it signed. Swaps are None for a wallet too busy to read: its transactions are then not fetched."""
     since = time.time() - DAYS * 86400
     sigs, before, oldest = [], None, time.time()
-    for _ in range(SIG_PAGES):
+    for _ in range(pages):
         page = P.rpc("getSignaturesForAddress", [wallet, {"limit": 1000, **({"before": before} if before else {})}]) or []
         if not page:
             break
         oldest = min(oldest, page[-1].get("blockTime") or oldest)
         sigs += [s for s in page if (s.get("blockTime") or 0) >= since and s.get("err") is None]
-        if len(sigs) >= WALLET_TXS * 4 or len(page) < 1000 or oldest < since:
+        if len(sigs) >= txs * 4 or len(page) < 1000 or oldest < since:
             break
         before = page[-1]["signature"]
     span = lambda xs: max(1 / 24, (time.time() - min((x.get("blockTime") or time.time()) for x in xs)) / 86400) if xs else 0
     busy = len(sigs) / max(1 / 24, (time.time() - max(oldest, since)) / 86400)
     if busy > BUSY_TXS_PER_DAY:
         return None, busy, span(sigs)  # a bot or a crowd of copy bots: too costly to read, and too crowded to copy
-    ok = sigs[:WALLET_TXS]
+    ok = sigs[:txs]
     swaps, signed = [], 0
     for s, tx in zip(ok, P.POOL.map(lambda s: P.fetch_tx(s["signature"]), ok)):
         if not tx:
@@ -116,7 +122,74 @@ def history(wallet, sp):
     return sorted(swaps, key=lambda x: x["time"]), signed / span(ok) if ok else 0, span(ok)
 
 
-def evaluate(wallet, swaps, tx_per_day, span_days, prices, supply=None, min_mcap_sol=0):
+def fill_gaps(sp):
+    """How much worse than the wallet itself the live engine's Jupiter quotes were, per wallet: the median of
+    (our price / the wallet's price - 1) on buys and on sells. Copies logged before the engine kept the wallet's
+    price get it from the wallet's own transaction. Results are kept in data/fill_gaps.json; "*" is everyone."""
+    path = f"{P.DATA}/fill_gaps.json"
+    try:
+        cache = json.load(open(path))
+    except FileNotFoundError:
+        cache = {}
+    try:
+        trades = json.load(open(f"{P.DATA}/paper.json")).get("trades", [])
+    except FileNotFoundError:
+        trades = []
+    fetched = 0
+    for t in trades:
+        side = {"buy": "buy", "skip": "buy", "sell": "sell"}.get(t.get("side"))
+        if not side or t.get("fill") != "jupiter" or not t.get("price") or not t.get("leaderSig"):
+            continue
+        if t["side"] != "skip" and t.get("strategy") != "follow" or t["side"] == "sell" and t.get("reason") != "wallet sold":
+            continue  # one record per copy, and only sells that followed the wallet
+        key = f"{t['leaderSig']}:{side}"
+        if key in cache:
+            continue
+        lp = t.get("leaderPrice")
+        if not lp:
+            if fetched >= GAP_FETCH_MAX:
+                continue
+            fetched += 1
+            tx = P.fetch_tx(t["leaderSig"])
+            sw = tx and P.parse_swap(tx, t["wallet"], sp)
+            lp = sw["sol"] / abs(sw["dtok"]) if sw and sw["mint"] == t.get("mint") else None
+        cache[key] = {"wallet": t["wallet"], "side": side, "gap": t["price"] / lp - 1 if lp else None, "time": t["time"]}
+    json.dump(cache, open(path, "w"))
+    med = lambda xs: sorted(xs)[len(xs) // 2] if xs else None
+    per = collections.defaultdict(lambda: {"buy": [], "sell": []})
+    for v in cache.values():
+        if v.get("gap") is not None:
+            per[v["wallet"]][v["side"]].append(v["gap"])
+            per["*"][v["side"]].append(v["gap"])
+    print(f"  measured fills: {len(per['*']['buy'])} buys, {len(per['*']['sell'])} sells ({fetched} wallet transactions read)", file=sys.stderr)
+    return {w: {"entry": med(g["buy"]), "exit": med(g["sell"]), "n": len(g["buy"]), "nExit": len(g["sell"])} for w, g in per.items()}
+
+
+def fill_cost(gaps, wallet):
+    """(buy multiplier, sell multiplier, where they came from) for a copy of this wallet."""
+    own, avg = gaps.get(wallet) or {}, gaps.get("*") or {}
+    pick = lambda key, n_key: (own[key], "measured") if own.get(n_key, 0) >= GAP_MIN else (avg[key], "average") if avg.get(n_key, 0) >= 10 else (None, "estimate")
+    entry, e_src = pick("entry", "n")
+    exit_, x_src = pick("exit", "nExit")
+    buy = 1 + min(2.0, max(0.0, entry)) if entry is not None else 1 + P.SLIP
+    sell = 1 + min(0.1, max(-0.9, exit_)) if exit_ is not None else 1 - P.SLIP
+    return buy, sell, e_src if e_src == x_src else f"{e_src} buys, {x_src} sells"
+
+
+def live_results():
+    """Per wallet: (number of closed live copies, their total PnL in SOL), "sell when the wallet sells" strategy."""
+    res = collections.defaultdict(lambda: [0, 0.0])
+    try:
+        for p in json.load(open(f"{P.DATA}/paper.json")).get("closed", []):
+            if p.get("strategy") == "follow" and p.get("pnlSol") is not None:
+                res[p["wallet"]][0] += 1
+                res[p["wallet"]][1] += p["pnlSol"]
+    except FileNotFoundError:
+        pass
+    return res
+
+
+def evaluate(wallet, swaps, tx_per_day, span_days, prices, supply=None, min_mcap_sol=0, cost=(1 + P.SLIP, 1 - P.SLIP, "estimate")):
     per = collections.OrderedDict()
     for s in swaps:
         t = per.setdefault(s["mint"], {"buySol": 0.0, "buyTok": 0.0, "sellSol": 0.0, "sellTok": 0.0, "first": None, "firstSell": None})
@@ -144,7 +217,7 @@ def evaluate(wallet, swaps, tx_per_day, span_days, prices, supply=None, min_mcap
         wins += pnl > 0
         f = min(1.0, t["sellTok"] / t["buyTok"])
         s_px = t["sellSol"] / t["sellTok"] if t["sellTok"] else 0
-        ret = (f * s_px * (1 - P.SLIP) + (1 - f) * cur * (1 - P.SLIP)) / (b * (1 + P.SLIP))
+        ret = (f * s_px + (1 - f) * cur) * cost[1] / (b * cost[0])
         cp = P.TRADE_SOL * (ret - 1) - 2 * P.FEE_SOL
         copy_pnl += cp
         copy_wins += cp > 0
@@ -167,7 +240,8 @@ def evaluate(wallet, swaps, tx_per_day, span_days, prices, supply=None, min_mcap
     return {"wallet": wallet, "tokens": tokens, "swaps": len(swaps), "txPerDay": round(tx_per_day, 1),
             "daysCovered": round(span_days, 1), "ownPnlSol": round(own_pnl, 3), "ownWinRatePct": round(100 * wins / tokens, 1) if tokens else None,
             "copyPnlSol": round(copy_pnl, 3), "copyPerTokenSol": round(copy_pnl / tokens, 4) if tokens else None,
-            "copyWinRatePct": copy_win_rate, "medianHoldSec": median_hold, "tooSmallTokens": too_small, "flags": flags}
+            "copyWinRatePct": copy_win_rate, "medianHoldSec": median_hold, "tooSmallTokens": too_small,
+            "buyCostPct": round(100 * (cost[0] - 1), 1), "sellCostPct": round(100 * (1 - cost[1]), 1), "costSource": cost[2], "flags": flags}
 
 
 KOLS = {}
@@ -199,11 +273,39 @@ def main():
         traders = set()
     early = set(P.early_buyers())
     watched = {w["wallet"]: w for w in watchlist()}
-    rows = []
-    for w, (swaps, rate, span) in hist.items():
-        r = evaluate(w, swaps or [], rate, span, prices, supply, P.MIN_MCAP_USD / sp)
+    gaps, live = fill_gaps(sp), live_results()
+
+    def judge(w, swaps, rate, span):
+        r = evaluate(w, swaps or [], rate, span, prices, supply, P.MIN_MCAP_USD / sp, fill_cost(gaps, w))
         if swaps is None or (not r["tokens"] and span < 1):
             r["flags"] = ["too busy to follow"]  # skipped, or so crowded by other wallets' transactions that its own trades weren't reached
+        n, pnl = live.get(w, (0, 0.0))
+        r["liveCopies"], r["livePnlSol"] = n, round(pnl, 3)
+        if n >= LIVE_MIN_COPIES and pnl < 0:
+            r["flags"].append("losing live")
+        elif n >= LIVE_MIN_COPIES and pnl > 0 and "too busy to follow" not in r["flags"]:
+            r["flags"] = []  # its real copies made money: that outweighs what a short history suggests
+            r["provenLive"] = True
+        return r
+
+    rows = {w: judge(w, *h) for w, h in hist.items()}
+    # a short read can catch one lucky day: read the wallets that pass again, further back, before trusting them
+    deep = [w for w, r in rows.items() if not r["flags"]]
+    print(f"reading {len(deep)} passing wallets again, up to {WALLET_TXS_DEEP} transactions each", file=sys.stderr)
+    for w in deep:
+        swaps, rate, span = history(w, sp, WALLET_TXS_DEEP, DEEP_SIG_PAGES)
+        new = {s["mint"] for s in swaps or []} - set(info)
+        if new:
+            more = P.token_info(new)
+            info.update(more)
+            prices.update({m: (i.get("priceUsd") or 0) / sp for m, i in more.items() if P.tradable(i)})
+            supply.update({m: i["marketCapUsd"] / i["priceUsd"] for m, i in more.items() if i.get("priceUsd") and i.get("marketCapUsd")})
+        rows[w] = judge(w, swaps, rate, span)
+        rows[w]["deep"] = True
+        print(f"  {w[:6]}: {rows[w]['tokens']} tokens over {span:.1f} days, copy backtest {rows[w]['copyPnlSol']:+.2f} SOL"
+              + (f" ({', '.join(rows[w]['flags'])})" if rows[w]["flags"] else ", still passes"), file=sys.stderr)
+    out = []
+    for w, r in rows.items():
         r["source"] = ("watchlist" if w in watched else "kolscan" if w in KOLS else "early" if w in early
                        else "leaderboard" if w in traders else "followed")
         if w in watched and watched[w].get("note"):
@@ -211,15 +313,17 @@ def main():
         elif w in KOLS:
             r["note"] = KOLS[w]["note"]
         r["scoredAt"] = P.now_iso()
-        rows.append(r)
+        out.append(r)
+    rows = out
     if only:  # a quick run for a few wallets keeps everyone else's last score
         prev = json.load(open(f"{P.DATA}/scores.json")).get("wallets", []) if os.path.exists(f"{P.DATA}/scores.json") else []
         rows += [r for r in prev if r["wallet"] not in hist]
-    rows.sort(key=lambda r: (bool(r["flags"]), -r["copyPnlSol"]))
+    rows.sort(key=lambda r: (bool(r["flags"]), -(r.get("livePnlSol") if r.get("provenLive") else r["copyPnlSol"])))
     selected = [r["wallet"] for r in rows if not r["flags"]][:P.FOLLOW]
-    json.dump({"updatedAt": P.now_iso(), "days": DAYS, "walletTxs": WALLET_TXS, "slippagePct": P.SLIP * 100, "feeSol": P.FEE_SOL,
+    json.dump({"updatedAt": P.now_iso(), "days": DAYS, "walletTxs": WALLET_TXS, "walletTxsDeep": WALLET_TXS_DEEP,
+               "fillGap": gaps.get("*"), "slippagePct": P.SLIP * 100, "feeSol": P.FEE_SOL,
                "tradeSol": P.TRADE_SOL, "rules": {"minTokens": MIN_TOKENS, "minWinRatePct": MIN_WIN_RATE,
-               "maxTokensPerDay": BOT_TOKENS_PER_DAY, "minHoldSec": MIN_HOLD_SEC}, "selected": selected, "wallets": rows},
+               "maxTokensPerDay": BOT_TOKENS_PER_DAY, "minHoldSec": MIN_HOLD_SEC, "liveMinCopies": LIVE_MIN_COPIES}, "selected": selected, "wallets": rows},
               open(f"{P.DATA}/scores.json", "w"))
     print(f"{len(rows)} wallets scored, {len(selected)} pass every rule", file=sys.stderr)
 
