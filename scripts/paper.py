@@ -483,12 +483,12 @@ def publish(st, sp, top, engine):
     f = strats["follow"]
     point = {"t": now_iso(), "realizedSol": f["realizedSol"], "openPnlSol": f["openPnlSol"], "open": f["openPositions"],
              "byStrategy": {k: v["totalPnlSol"] for k, v in strats.items()}}
-    # live runs publish often; keep at most one equity point per 10 minutes
-    if st["equity"] and time.time() - epoch(st["equity"][-1]["t"]) < 600:
+    # live runs publish often; keep at most one equity point per 10-minute slot (the latest in it)
+    if st["equity"] and int(epoch(st["equity"][-1]["t"]) // 600) == int(time.time() // 600):
         st["equity"][-1] = point
     else:
         st["equity"].append(point)
-    st["equity"] = st["equity"][-6 * 24 * 60:]
+    st["equity"] = st["equity"][-6 * 24 * 30:]  # 30 days
     st["trades"] = st["trades"][-4000:]
     st["closed"] = closed[-4000:]
     st["solUsd"] = sp

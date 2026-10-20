@@ -47,17 +47,41 @@ def watchlist():
         return []
 
 
+_KOL_PAGE = None
+
+
+def kolscan_page():
+    """The kolscan.io leaderboard page with its embedded data unescaped, fetched once per run ("" if unavailable)."""
+    global _KOL_PAGE
+    if _KOL_PAGE is None:
+        try:
+            req = urllib.request.Request("https://kolscan.io/leaderboard", headers={"user-agent": "Mozilla/5.0 (solchain wallet scoring)"})
+            with urllib.request.urlopen(req, timeout=20, context=P.SSL_CTX) as r:
+                _KOL_PAGE = r.read().decode("utf-8", "replace").replace('\\"', '"')
+        except Exception as e:
+            print(f"  kolscan unavailable: {e}", file=sys.stderr)
+            _KOL_PAGE = ""
+    return _KOL_PAGE
+
+
+def kol_names():
+    """Name of every trader kolscan.io lists now or listed before, by wallet. Names are kept in data/names.json,
+    since a trader can drop off the page while the engine still follows it."""
+    path = f"{P.DATA}/names.json"
+    try:
+        names = json.load(open(path))
+    except FileNotFoundError:
+        names = {}
+    names.update(re.findall(r'"wallet_address":"([1-9A-HJ-NP-Za-km-z]{32,44})","name":"([^"]*)"', kolscan_page()))
+    json.dump(dict(sorted(names.items())), open(path, "w"), ensure_ascii=False, indent=0)
+    return names
+
+
 def kolscan():
     """Quiet, profitable traders from the kolscan.io day, week and month leaderboards, most profit per trade first.
     Busy famous traders are left out: copy bots crowd them, so a copy always buys after the crowd.
     The page embeds its leaderboard data; one request a day."""
-    try:
-        req = urllib.request.Request("https://kolscan.io/leaderboard", headers={"user-agent": "Mozilla/5.0 (solchain wallet scoring)"})
-        with urllib.request.urlopen(req, timeout=20, context=P.SSL_CTX) as r:
-            page = r.read().decode("utf-8", "replace").replace('\\"', '"')
-    except Exception as e:
-        print(f"  kolscan unavailable: {e}", file=sys.stderr)
-        return {}
+    page = kolscan_page()
     rows = re.findall(r'"wallet_address":"([1-9A-HJ-NP-Za-km-z]{32,44})","name":"([^"]*)",[^{}]*?"profit":(-?[\d.e+-]+),"wins":(\d+),"losses":(\d+),"timeframe":(\d+)', page)
     best = {}
     for wallet, name, profit, wins, losses, tf in rows:
@@ -283,7 +307,7 @@ def main():
         traders = set()
     early = set(P.early_buyers())
     watched = {w["wallet"]: w for w in watchlist()}
-    gaps, live = fill_gaps(sp), live_results()
+    gaps, live, names = fill_gaps(sp), live_results(), kol_names()
 
     def judge(w, swaps, rate, span):
         r = evaluate(w, swaps or [], rate, span, prices, supply, P.MIN_MCAP_USD / sp, fill_cost(gaps, w))
@@ -322,6 +346,8 @@ def main():
             r["note"] = watched[w]["note"]
         elif w in KOLS:
             r["note"] = KOLS[w]["note"]
+        elif w in names:
+            r["note"] = f"Kolscan {names[w]}"
         r["scoredAt"] = P.now_iso()
         out.append(r)
     rows = out

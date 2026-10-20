@@ -1,5 +1,5 @@
 // Network first, so the app always shows the newest data; the last copy is used when offline.
-const CACHE = 'solchain-v2';
+const CACHE = 'solchain-v3';
 const SHELL = ['./', 'index.html', 'copy.html', 'early.html', 'wallets.html', 'assets.css', 'icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {

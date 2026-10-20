@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="nl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -15,8 +15,8 @@
   // On the home screen the status bar sits over the page in white text, so the app always uses the dark theme there.
   if (navigator.standalone || matchMedia('(display-mode: standalone)').matches) document.documentElement.dataset.theme = 'dark';
 </script>
-<title>SolChain Paper Copy-Trade</title>
-<meta name="description" content="A simulated copy-trading engine that follows scored Solana wallets and compares four exit strategies.">
+<title>SolChain Copy-trade</title>
+<meta name="description" content="Een gesimuleerde copy-trading engine die gescoorde Solana-wallets volgt en vier verkoopstrategieën vergelijkt.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -33,62 +33,70 @@
   .seg button[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
   .reason { font-size: 12px; color: var(--muted); }
   .skiprow td { color: var(--muted); }
+  .wname { display: block; font-weight: 600; font-family: var(--font-body, inherit); }
+  .waddr { font-size: 12px; color: var(--muted); }
+  .tape .fig.main .fig-value { font-size: 34px; }
+  .card .controls { margin-bottom: 10px; }
+  .pill.follow { color: var(--accent); border-color: currentColor; }
+  @media (max-width: 720px) {
+    .tape { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tape .fig { padding: 12px 14px; }
+    .tape .fig .fig-value, .tape .fig.main .fig-value { font-size: 21px; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <nav class="nav" aria-label="Pages"><a href="./">Leaderboard</a><a href="copy.html" aria-current="page">Copy-trade (paper)</a><a href="early.html">Early buyers</a><a href="wallets.html">Wallet scores</a></nav>
+  <nav class="nav" aria-label="Pagina's"><a href="./">Leaderboard</a><a href="copy.html" aria-current="page">Copy-trade (paper)</a><a href="early.html">Early buyers</a><a href="wallets.html">Wallet scores</a></nav>
   <header class="head" id="overview">
-    <div class="eyebrow"><span class="badge">Paper trading</span><span class="live" id="fresh">Loading data</span><span id="mode"></span></div>
-    <h1>Copy-trading engine</h1>
-    <p class="take" id="take">Loading the simulation…</p>
+    <div class="eyebrow"><span class="badge">Paper trading · geen echt geld</span><span class="live" id="fresh">Data laden</span><span id="mode"></span></div>
+    <h1>Copy-trading</h1>
+    <p class="take" id="take">Simulatie laden…</p>
     <p class="when" id="when"></p>
   </header>
 
+  <section class="tape" id="headline" aria-label="Kerncijfers">
+    <div class="fig main"><span class="fig-label" id="k-total-label">Totaal</span><span class="fig-value" id="k-total">—</span><span class="fig-note" id="k-total-usd">—</span></div>
+    <div class="fig"><span class="fig-label">Vandaag gesloten</span><span class="fig-value" id="k-today">—</span><span class="fig-note" id="k-today-n">—</span></div>
+    <div class="fig"><span class="fig-label">Nu open</span><span class="fig-value" id="k-open">—</span><span class="fig-note" id="k-open-n">—</span></div>
+    <div class="fig"><span class="fig-label">Gesloten</span><span class="fig-value" id="k-realized">—</span><span class="fig-note" id="k-closed">—</span></div>
+  </section>
+
   <section class="card" id="strategies">
-    <h2>Exit strategies compared</h2>
-    <p class="note">Every copied buy is held four times, once per strategy, each with the same entry. Pick a strategy to see its positions below.</p>
+    <h2>Welke verkoopstrategie werkt het best?</h2>
+    <p class="note">Elke gekopieerde aankoop wordt vier keer vastgehouden, één keer per strategie, met dezelfde instap. Tik op een strategie om de cijfers en posities daarvan te zien.</p>
     <div class="scroll short">
       <table class="strat" id="strat-table">
         <thead><tr>
-          <th class="plain"><span>Strategy</span></th>
-          <th class="plain num"><span>Total PnL</span></th>
-          <th class="plain num hide-narrow"><span>Closed</span></th>
-          <th class="plain num"><span>Won</span></th>
+          <th class="plain"><span>Strategie</span></th>
+          <th class="plain num"><span>Totaal</span></th>
+          <th class="plain num"><span>Gewonnen</span></th>
+          <th class="plain num hide-narrow"><span>Gesloten</span></th>
           <th class="plain num hide-narrow"><span>Open</span></th>
-          <th class="plain num hide-narrow"><span>Open PnL</span></th>
         </tr></thead>
         <tbody></tbody>
       </table>
     </div>
   </section>
 
-  <section class="tape" id="headline" aria-label="Headline figures">
-    <div class="fig"><span class="fig-label" id="k-total-label">Total PnL</span><span class="fig-value" id="k-total">—</span><span class="fig-note" id="k-total-usd">—</span></div>
-    <div class="fig"><span class="fig-label">Closed positions</span><span class="fig-value" id="k-realized">—</span><span class="fig-note" id="k-closed">—</span></div>
-    <div class="fig"><span class="fig-label">Open positions</span><span class="fig-value" id="k-open">—</span><span class="fig-note" id="k-open-n">—</span></div>
-    <div class="fig"><span class="fig-label">Buys skipped</span><span class="fig-value" id="k-skipped">—</span><span class="fig-note" id="k-skip-why">—</span></div>
-  </section>
-
   <section class="card" id="equity">
-    <h2>PnL over time</h2>
-    <p class="note">Closed plus open PnL in SOL per strategy, after each check.</p>
+    <h2>Resultaat in de tijd</h2>
+    <p class="note">Het gesloten resultaat in SOL per strategie na elke verkoop; het laatste punt telt ook de open posities mee. De dikke lijn is de gekozen strategie.</p>
     <div class="line-chart" id="chart"></div>
   </section>
 
   <section class="card" id="open">
-    <div class="detail-head"><h2>Open positions</h2><div class="seg" id="seg-open" role="group" aria-label="Strategy"></div></div>
-    <p class="note">Copies still held by the selected strategy, revalued at live Dexscreener prices every 15 seconds while this page is open.</p>
+    <div class="detail-head"><h2>Open posities</h2><div class="seg" id="seg-open" role="group" aria-label="Strategie"></div></div>
+    <p class="note">Kopieën die de gekozen strategie nog vasthoudt, elke 15 seconden opnieuw gewaardeerd met live prijzen van Dexscreener.</p>
     <div class="scroll short">
       <table id="open-table">
         <thead><tr>
           <th class="plain"><span>Token</span></th>
-          <th class="plain"><span>Copied wallet</span></th>
-          <th class="plain hide-narrow"><span>Opened</span></th>
-          <th class="plain num"><span>In</span></th>
-          <th class="plain num"><span>Value now</span></th>
-          <th class="plain num"><span>PnL</span></th>
-          <th class="plain num hide-narrow"><span>Change</span></th>
+          <th class="plain"><span>Trader</span></th>
+          <th class="plain hide-narrow"><span>Gekocht</span></th>
+          <th class="plain num hide-narrow"><span>Inzet</span></th>
+          <th class="plain num hide-narrow"><span>Waarde nu</span></th>
+          <th class="plain num"><span>Resultaat</span></th>
         </tr></thead>
         <tbody></tbody>
       </table>
@@ -97,17 +105,16 @@
 
   <div class="row">
     <section class="card" id="wallets">
-      <h2>Followed wallets</h2>
-      <p class="note">The best scored wallets from <a href="wallets.html">Wallet scores</a> (the leaderboard's top until the first scores exist). A wallet is dropped once <span id="r-drop">10</span> of its copies closed at a net loss. Results below are for the "Sell when the wallet sells" strategy.</p>
+      <h2>Gevolgde traders</h2>
+      <p class="note">De wallets die door de controles op <a href="wallets.html">Wallet scores</a> komen. Een trader valt af als zijn live kopieën samen verlies maken. Resultaten voor de strategie "Volg de trader".</p>
       <div class="scroll short">
         <table id="wallet-table">
           <thead><tr>
-            <th class="plain"><span>Wallet</span></th>
-            <th class="plain"><span>Source</span></th>
+            <th class="plain"><span>Trader</span></th>
             <th class="plain"><span>Status</span></th>
-            <th class="plain num"><span>Copies</span></th>
-            <th class="plain num"><span>Won</span></th>
-            <th class="plain num"><span>PnL</span></th>
+            <th class="plain num"><span>Kopieën</span></th>
+            <th class="plain num"><span>Gewonnen</span></th>
+            <th class="plain num"><span>Resultaat</span></th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -115,16 +122,16 @@
     </section>
 
     <section class="card" id="closed">
-      <h2>Closed positions</h2>
-      <p class="note">For the selected strategy, most recent first.</p>
+      <h2>Gesloten posities</h2>
+      <p class="note">Voor de gekozen strategie, nieuwste eerst.</p>
       <div class="scroll short">
         <table id="closed-table">
           <thead><tr>
             <th class="plain"><span>Token</span></th>
-            <th class="plain hide-narrow"><span>Wallet</span></th>
-            <th class="plain"><span>Closed</span></th>
-            <th class="plain hide-narrow"><span>Why</span></th>
-            <th class="plain num"><span>PnL</span></th>
+            <th class="plain hide-narrow"><span>Trader</span></th>
+            <th class="plain"><span>Gesloten</span></th>
+            <th class="plain hide-narrow"><span>Waarom</span></th>
+            <th class="plain num"><span>Resultaat</span></th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -133,18 +140,22 @@
   </div>
 
   <section class="card" id="trades">
-    <h2>Trade log</h2>
-    <p class="note">Fills of the selected strategy and skipped buys, most recent first. "Delay" is how long after the copied wallet's own trade the copy was filled.</p>
+    <h2>Handelslog</h2>
+    <p class="note">Aan- en verkopen van de gekozen strategie, nieuwste eerst. "Vertraging" is hoeveel seconden na de trader de kopie gevuld werd.</p>
+    <div class="controls">
+      <label class="toggle" for="show-skips"><input id="show-skips" type="checkbox"> Toon overgeslagen aankopen</label>
+      <span class="count" id="skip-count"></span>
+    </div>
     <div class="scroll short">
       <table id="trade-table">
         <thead><tr>
-          <th class="plain"><span>Time</span></th>
-          <th class="plain"><span>Action</span></th>
+          <th class="plain"><span>Tijd</span></th>
+          <th class="plain"><span>Actie</span></th>
           <th class="plain"><span>Token</span></th>
-          <th class="plain hide-narrow"><span>Wallet</span></th>
+          <th class="plain hide-narrow"><span>Trader</span></th>
           <th class="plain num"><span>SOL</span></th>
-          <th class="plain num hide-narrow"><span>Delay</span></th>
-          <th class="plain hide-narrow"><span>Leader tx</span></th>
+          <th class="plain num hide-narrow"><span>Vertraging</span></th>
+          <th class="plain hide-narrow"><span>Trade van trader</span></th>
         </tr></thead>
         <tbody></tbody>
       </table>
@@ -152,46 +163,71 @@
   </section>
 
   <section class="card method" id="rules">
-    <h2>Simulation rules</h2>
+    <h2>Spelregels van de simulatie</h2>
     <ul>
-      <li><b>No real money.</b> Nothing is bought or sold. This page shows what copying would have done.</li>
-      <li><b>Buys.</b> When a followed wallet buys a token against SOL, USDC or USDT, each strategy buys <span id="r-size">1 SOL</span> of it, once per wallet and token.</li>
-      <li><b>Skipped buys.</b> A buy is skipped when the token's pool has less than $5k liquidity (or, still on its pump.fun bonding curve, its market cap is under $5k), when its creator can still mint new tokens or freeze holders' tokens, when its 10 largest holders (the pool left out) own more than <span id="r-top10">40%</span>, or when the live price is already more than <span id="r-chase">30%</span> above the wallet's own.</li>
-      <li><b>Exits.</b> Every strategy sells the same share as the wallet whenever it sells. On top of that, "−30%" sells everything once the price is 30% below entry; "2× then trail" sells half at double the entry and the rest once the price falls 30% below its peak; "24 hours" sells everything a day after entry. These exits are checked every minute on the live engine and every hour otherwise.</li>
-      <li><b>Prices.</b> On the live engine, copies of the wallet's trades are priced with a real Jupiter quote at the moment it reacts. Otherwise, and for the strategy exits, a fill is <span id="r-slip">3%</span> worse than the price used. Every fill pays <span id="r-fee">0.001 SOL</span> in fees. Partial sells worth under 0.02 SOL are skipped.</li>
+      <li><b>Geen echt geld.</b> Er wordt niets echt gekocht of verkocht. Deze pagina laat zien wat kopiëren zou hebben opgeleverd.</li>
+      <li><b>Aankopen.</b> Als een gevolgde trader een token koopt met SOL, USDC of USDT, koopt elke strategie er <span id="r-size">1 SOL</span> van, één keer per trader en token.</li>
+      <li><b>Overgeslagen.</b> Een aankoop wordt overgeslagen als de pool minder dan $5k liquiditeit heeft (of, op de pump.fun-curve, de marketcap onder $5k ligt), als de maker nog tokens kan bijmaken of bevriezen, als de 10 grootste houders (zonder de pool) samen meer dan <span id="r-top10">40%</span> bezitten, of als de live prijs al meer dan <span id="r-chase">30%</span> boven die van de trader ligt.</li>
+      <li><b>Verkopen.</b> Elke strategie verkoopt hetzelfde deel als de trader zodra die verkoopt. Daarbovenop: "Stop op −30%" verkoopt alles 30% onder de instap; "Helft op 2×" verkoopt de helft bij een verdubbeling en de rest 30% onder de piek; "Na 24 uur" verkoopt alles een dag na de aankoop.</li>
+      <li><b>Prijzen.</b> Op je Mac wordt elke kopie geprijsd met een echte Jupiter-quote op het moment dat de engine reageert. Anders, en voor de extra verkoopregels, is een vulling <span id="r-slip">3%</span> slechter. Elke vulling kost <span id="r-fee">0,001 SOL</span> aan fees.</li>
     </ul>
   </section>
 
-  <footer>Data: Solana RPC, Jupiter, Dexscreener public API. Not financial advice.</footer>
+  <footer>Data: Solana RPC, Jupiter, Dexscreener. Geen financieel advies. Tijden in jouw eigen tijdzone.</footer>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const sol = (v, digits = 3) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + d3.format(`,.${digits}f`)(Math.abs(v)) + ' SOL');
+  const F = d3.formatLocale({ decimal: ',', thousands: '.', grouping: [3], currency: ['$', ''] });
+  const fmt = F.format;
+  const NL = d3.timeFormatLocale({ dateTime: '%a %e %B %Y %X', date: '%d-%m-%Y', time: '%H:%M:%S', periods: ['', ''],
+    days: ['zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag'], shortDays: ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'],
+    months: ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'],
+    shortMonths: ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'] });
+  const sol = (v, digits = 3) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + fmt(`,.${digits}f`)(Math.abs(v)) + ' SOL');
   const signedSol = (v, d) => (v > 0 ? '+' : '') + sol(v, d);
-  const usd = (v) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + '$' + d3.format(',.0f')(Math.abs(v)));
-  const pct = (v) => (!isFinite(v) ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + d3.format(',.1f')(Math.abs(v)) + '%');
+  const usd = (v) => (v == null || isNaN(v) ? '—' : (v < 0 ? '−' : '') + '$' + fmt(',.0f')(Math.abs(v)));
+  const pct = (v) => (!isFinite(v) ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + fmt(',.0f')(Math.abs(v)) + '%');
   const short = (w) => (w && w.length > 10 ? w.slice(0, 4) + '…' + w.slice(-4) : w || '—');
   const isAddr = (w) => typeof w === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(w);
   const isSig = (s) => typeof s === 'string' && /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(s);
-  const when = (s) => { const d = new Date(s); return isNaN(d) ? '—' : d3.utcFormat('%b %-d, %H:%M')(d); };
-  const ago = (s) => { const m = Math.round((Date.now() - new Date(s)) / 60000); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const today0 = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+  const when = (s) => { const d = new Date(s); if (isNaN(d)) return '—'; return NL.format(d >= today0() ? 'vandaag %H:%M' : '%-d %b %H:%M')(d); };
+  const ago = (s) => { const m = Math.round((Date.now() - new Date(s)) / 60000); return m < 1 ? 'zojuist' : m < 60 ? `${m} min geleden` : m < 2880 ? `${Math.round(m / 60)} uur geleden` : `${Math.round(m / 1440)} dagen geleden`; };
   const tone = (el, v) => { el.classList.toggle('gain', v > 0); el.classList.toggle('loss', v < 0); return el; };
   const link = (href, text) => { const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text; return a; };
-  const walletCell = (td, w) => { td.classList.add('data'); if (isAddr(w)) td.append(link('https://solscan.io/account/' + w, short(w))); else td.textContent = short(w); };
-  const tokenCell = (td, sym, mint) => { if (isAddr(mint)) td.append(link('https://dexscreener.com/solana/' + mint, sym)); else td.textContent = sym; };
   const emptyRow = (tb, cols, text) => { const td = tb.insertRow().insertCell(); td.colSpan = cols; const d = document.createElement('div'); d.className = 'empty'; d.textContent = text; td.append(d); };
 
+  // Trader names from Wallet scores: "Kolscan Numer0 (trench/arc): +477 SOL…" becomes "Numer0 (trench/arc)".
+  let NAMES_W = new Map();
+  const nameOf = (r) => {
+    const n = r.note || '';
+    const k = n.match(/^Kolscan (.+?)(?: \(found in the full list scan\)|: [+−-]|$)/);
+    if (k) return k[1];
+    return n && r.source === 'watchlist' ? n.slice(0, 28) : null;
+  };
+  const walletCell = (td, w) => {
+    td.classList.add('data');
+    const nm = NAMES_W.get(w);
+    if (nm) { const b = document.createElement('span'); b.className = 'wname'; b.textContent = nm; td.append(b); }
+    const addr = isAddr(w) ? link('https://solscan.io/account/' + w, short(w)) : document.createTextNode(short(w));
+    if (nm) { const s = document.createElement('span'); s.className = 'waddr'; s.append(addr); td.append(s); } else td.append(addr);
+  };
+  const tokenCell = (td, sym, mint) => { if (isAddr(mint)) td.append(link('https://dexscreener.com/solana/' + mint, sym)); else td.textContent = sym; };
+
   const ORDER = ['follow', 'stop30', 'tp2x', 'max24h'];
-  const NAMES = { follow: 'Follow the wallet', stop30: '−30% stop', tp2x: '2× then trail', max24h: '24 hours' };
-  const SKIPS = { lowLiquidity: 'low liquidity', mintAuthority: 'can still be minted', freezeAuthority: 'can be frozen', concentrated: 'few big holders', chase: 'price ran away' };
+  const NAMES = { follow: 'Volg de trader', stop30: 'Stop op −30%', tp2x: 'Helft op 2×', max24h: 'Na 24 uur' };
+  const DESC = { follow: 'Verkoopt alleen als de trader verkoopt', stop30: 'Verkoopt ook alles bij 30% verlies', tp2x: 'Verkoopt de helft bij een verdubbeling, de rest 30% onder de piek', max24h: 'Verkoopt ook alles na 24 uur' };
+  const SKIPS = { lowLiquidity: 'te klein', mintAuthority: 'kan nog bijgemaakt worden', freezeAuthority: 'kan bevroren worden', concentrated: 'te weinig houders', chase: 'prijs al te hoog' };
+  const WHY = { 'wallet sold': 'trader verkocht', 'stop-loss': 'stop −30%', 'take-profit': 'helft op 2×', 'trailing stop': '30% onder piek', 'time limit': 'na 24 uur' };
   const COLORS = () => { const c = getComputedStyle(document.documentElement); return { follow: c.getPropertyValue('--accent').trim(), stop30: '#c2410c', tp2x: '#7c3aed', max24h: '#0e7490' }; };
   const stratOf = (x) => x.strategy || 'follow';
 
-  let D = null, LIVE = null, strat = 'follow';
-  try { strat = localStorage.getItem('solchain-strategy') || 'follow'; } catch (e) {}
+  let D = null, LIVE = null, strat = 'follow', showSkips = false;
+  try { strat = localStorage.getItem('solchain-strategy') || 'follow'; showSkips = localStorage.getItem('solchain-skips') === '1'; } catch (e) {}
+  $('show-skips').checked = showSkips;
   const WSOL = 'So11111111111111111111111111111111111111112';
   const STABLE = new Set(['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY5NNmFfeQe36Ci']);
 
@@ -245,14 +281,13 @@
       const name = tr.insertCell();
       const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = col[k];
       const b = document.createElement('b'); b.textContent = NAMES[k] || k;
-      const lab = document.createElement('div'); lab.className = 'label'; lab.textContent = (D.strategies || {})[k] || '';
+      const lab = document.createElement('div'); lab.className = 'label'; lab.textContent = DESC[k] || '';
       name.append(sw, b, lab);
       const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
-      tone(n(signedSol(s.totalPnlSol)), s.totalPnlSol);
+      tone(n(signedSol(s.totalPnlSol, 2)), s.totalPnlSol);
+      n(s.winRatePct == null ? '—' : fmt('.0f')(s.winRatePct) + '%');
       n(s.closedPositions, 'hide-narrow');
-      n(s.winRatePct == null ? '—' : d3.format('.0f')(s.winRatePct) + '%');
       n(s.openPositions, 'hide-narrow');
-      tone(n(signedSol(s.openPnlSol), 'hide-narrow'), s.openPnlSol);
     }
     const seg = $('seg-open'); seg.replaceChildren();
     for (const k of ORDER.filter((k) => ss[k])) {
@@ -261,67 +296,77 @@
     }
   }
 
+  // What the selected strategy's copies that closed since local midnight made.
+  const closedToday = () => { const t0 = today0(); return D.closed.filter((p) => stratOf(p) === strat && new Date(p.closedAt) >= t0); };
+
   function headline() {
     const s = D.summary, cur = S();
-    $('k-total-label').textContent = `Total PnL · ${NAMES[strat] || strat}`;
-    $('k-total').textContent = signedSol(cur.totalPnlSol); tone($('k-total'), cur.totalPnlSol);
-    $('k-total-usd').textContent = `≈ ${usd(cur.totalPnlSol * s.solUsd)} at $${d3.format(',.2f')(s.solUsd)} per SOL`;
-    $('k-realized').textContent = signedSol(cur.realizedSol); tone($('k-realized'), cur.realizedSol);
-    $('k-closed').textContent = cur.closedPositions ? `${cur.closedPositions} closed, ${d3.format('.0f')(cur.winRatePct)}% in profit` : 'None closed yet';
-    $('k-open').textContent = signedSol(cur.openPnlSol); tone($('k-open'), cur.openPnlSol);
-    $('k-open-n').textContent = `${cur.openPositions} position${cur.openPositions === 1 ? '' : 's'}, ${sol(cur.capitalInUseSol, 0)} in use`;
-    const skips = s.skips || { lowLiquidity: s.skippedLowLiquidity || 0 };
-    const total = d3.sum(Object.values(skips));
-    $('k-skipped').textContent = d3.format(',')(total);
-    $('k-skip-why').textContent = total ? Object.entries(skips).filter(([, v]) => v).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${SKIPS[k] || k}`).join(', ') : 'None yet';
+    $('k-total-label').textContent = `Totaal · ${NAMES[strat] || strat}`;
+    $('k-total').textContent = signedSol(cur.totalPnlSol, 2); tone($('k-total'), cur.totalPnlSol);
+    $('k-total-usd').textContent = `≈ ${usd(cur.totalPnlSol * s.solUsd)} · sinds ${when(s.startedAt)}`;
+    const ct = closedToday(), td = d3.sum(ct, (p) => p.pnlSol), t0 = today0();
+    const buys = D.trades.filter((t) => t.side === 'buy' && stratOf(t) === strat && new Date(t.time) >= t0).length;
+    $('k-today').textContent = ct.length ? signedSol(td, 2) : '—'; tone($('k-today'), td);
+    $('k-today-n').textContent = `${ct.length} gesloten, ${buys} gekocht sinds 00:00`;
+    $('k-open').textContent = signedSol(cur.openPnlSol, 2); tone($('k-open'), cur.openPnlSol);
+    $('k-open-n').textContent = cur.openPositions ? `${cur.openPositions} positie${cur.openPositions === 1 ? '' : 's'}, ${sol(cur.capitalInUseSol, 0)} ingezet` : 'Geen open posities';
+    $('k-realized').textContent = signedSol(cur.realizedSol, 2); tone($('k-realized'), cur.realizedSol);
+    $('k-closed').textContent = cur.closedPositions ? `${cur.closedPositions} gesloten, ${fmt('.0f')(cur.winRatePct)}% met winst` : 'Nog niets gesloten';
     const ss = s.strategies || { follow: s };
     const best = ORDER.filter((k) => ss[k] && ss[k].closedPositions + ss[k].openPositions).sort((a, b) => ss[b].totalPnlSol - ss[a].totalPnlSol)[0];
-    const parts = [s.followingScored ? `${s.followingScored} scored` : null, s.following - (s.followingScored || 0) - (s.followingEarly || 0) ? `${s.following - (s.followingScored || 0) - (s.followingEarly || 0)} from the leaderboard` : null, s.followingEarly ? `${s.followingEarly} early buyers` : null].filter(Boolean).join(', ');
-    $('take').textContent = best
-      ? `Copying ${s.following} wallets (${parts}) with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. Best strategy so far: "${NAMES[best]}" at ${signedSol(ss[best].totalPnlSol)}.`
-      : `Following ${s.following} wallets (${parts}) with ${sol(s.tradeSol, 0)} per buy since ${when(s.startedAt)} UTC. No copies yet.`;
-    $('when').textContent = `Prices and positions as of ${when(s.updatedAt)} UTC.`;
-    $('fresh').textContent = `Checked ${ago(s.updatedAt)}`;
+    const names = D.wallets.filter((w) => w.following).map((w) => NAMES_W.get(w.wallet) || short(w.wallet));
+    $('take').textContent = `Volgt ${s.following} trader${s.following === 1 ? '' : 's'}${names.length ? ` (${names.join(', ')})` : ''} met ${sol(s.tradeSol, 0)} per aankoop.`
+      + (best ? ` Beste strategie tot nu toe: "${NAMES[best]}" met ${signedSol(ss[best].totalPnlSol, 2)}.` : ' Nog geen kopieën.');
+    $('when').textContent = `Posities bijgewerkt ${when(s.updatedAt)}.`;
+    $('fresh').textContent = `Bijgewerkt ${ago(s.updatedAt)}`;
     const live = s.engine === 'live';
     $('fresh').classList.toggle('stale', (Date.now() - new Date(s.updatedAt)) / 3.6e6 > (live ? 0.5 : 3));
-    $('mode').textContent = (live ? `Live engine${s.medianLagSec != null ? ` · median delay ${d3.format('.0f')(s.medianLagSec)} s` : ''}` : 'Hourly check')
-      + (LIVE && D.positions.length ? ` · prices live ${d3.timeFormat('%H:%M:%S')(LIVE.at)}` : '');
+    $('mode').textContent = (live ? `Mac live${s.medianLagSec != null ? ` · vertraging ${fmt('.0f')(s.medianLagSec)} s` : ''}` : 'Uurlijkse check (Mac uit?)')
+      + (LIVE && D.positions.length ? ` · live prijzen ${NL.format('%H:%M:%S')(LIVE.at)}` : '');
     $('r-size').textContent = sol(s.tradeSol, 0);
-    $('r-slip').textContent = d3.format('.0f')(s.slippagePct) + '%';
+    $('r-slip').textContent = fmt('.0f')(s.slippagePct) + '%';
     $('r-fee').textContent = sol(s.feeSol);
-    if (s.chasePct != null) $('r-chase').textContent = d3.format('.0f')(s.chasePct) + '%';
-    if (s.top10MaxPct != null) $('r-top10').textContent = d3.format('.0f')(s.top10MaxPct) + '%';
-    if (s.dropAfter != null) $('r-drop').textContent = s.dropAfter;
+    if (s.chasePct != null) $('r-chase').textContent = fmt('.0f')(s.chasePct) + '%';
+    if (s.top10MaxPct != null) $('r-top10').textContent = fmt('.0f')(s.top10MaxPct) + '%';
   }
 
   function chart() {
     const box = $('chart'); box.replaceChildren();
     const ss = D.summary.strategies || {};
     const keys = ORDER.filter((k) => k === 'follow' || ss[k]);
-    const series = keys.map((k) => ({ k, pts: D.equity.map((e) => ({ t: new Date(e.t), v: e.byStrategy ? e.byStrategy[k] : (k === 'follow' ? e.realizedSol + e.openPnlSol : undefined) }))
-      .filter((p) => !isNaN(p.t) && p.v != null) }));
-    if (LIVE) for (const s of series) if (s.pts.length && LIVE.at > s.pts[s.pts.length - 1].t && ss[s.k]) s.pts.push({ t: LIVE.at, v: ss[s.k].totalPnlSol });
+    // the closed result after every close, starting from what closed before the oldest close in this file,
+    // then today's total including open positions
+    const start = new Date(D.summary.startedAt);
+    const series = keys.map((k) => {
+      const cl = D.closed.filter((p) => stratOf(p) === k && p.closedAt).sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
+      const s = ss[k] || D.summary;
+      let v = (s.realizedSol || 0) - d3.sum(cl, (p) => p.pnlSol);
+      const pts = [{ t: cl.length && v === 0 ? start : new Date(cl.length ? cl[0].closedAt : start), v }];
+      for (const p of cl) { v += p.pnlSol; pts.push({ t: new Date(p.closedAt), v }); }
+      pts.push({ t: LIVE ? LIVE.at : new Date(D.summary.updatedAt), v: s.totalPnlSol });
+      return { k, pts: pts.filter((p) => !isNaN(p.t)) };
+    });
     const all = series.flatMap((s) => s.pts);
-    if (series[0].pts.length < 2) { box.innerHTML = '<div class="empty">The lines appear after two checks.</div>'; return; }
+    if (series[0].pts.length < 2) { box.innerHTML = '<div class="empty">De lijnen verschijnen na twee checks.</div>'; return; }
     const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim(), C = COLORS();
     const W = box.clientWidth || 600, H = 260, m = { t: 12, r: 16, b: 26 };
-    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'PnL over time per strategy');
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'Resultaat in de tijd per strategie');
     const lo = Math.min(0, d3.min(all, (p) => p.v)), hi = Math.max(0, d3.max(all, (p) => p.v));
     const y = d3.scaleLinear([lo, hi || 1], [H - m.b, m.t]).nice();
     const yt = y.ticks(4);
     const probe = svg.append('text').attr('font-size', 11);
-    m.l = (d3.max(yt, (t) => { probe.text(sol(t, 1)); return probe.node().getComputedTextLength(); }) || 30) + 10;
+    m.l = (d3.max(yt, (t) => { probe.text(sol(t, 0)); return probe.node().getComputedTextLength(); }) || 30) + 10;
     probe.remove();
-    const x = d3.scaleUtc(d3.extent(all, (p) => p.t), [m.l, W - m.r]);
+    const x = d3.scaleTime(d3.extent(all, (p) => p.t), [m.l, W - m.r]);
     svg.append('g').selectAll('line').data(yt).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', (t) => y(t)).attr('y2', (t) => y(t))
       .attr('stroke', (t) => (t === 0 ? col('--muted') : col('--line'))).attr('stroke-width', 1);
     svg.append('g').selectAll('text').data(yt).join('text').attr('x', m.l - 8).attr('y', (t) => y(t)).attr('dy', '0.35em').attr('text-anchor', 'end')
-      .attr('font-size', 11).attr('fill', col('--muted')).text((t) => sol(t, 1));
+      .attr('font-size', 11).attr('fill', col('--muted')).text((t) => sol(t, 0));
     const span = x.domain()[1] - x.domain()[0];
-    const fmt = d3.utcFormat(span > 3 * 864e5 ? '%b %-d' : span > 864e5 ? '%b %-d %H:%M' : '%H:%M');
-    const xt = [...new Map(x.ticks(W < 500 ? 3 : 6).map((t) => [fmt(t), t])).values()];
+    const tf = NL.format(span > 3 * 864e5 ? '%-d %b' : span > 864e5 ? '%-d %b %H:%M' : '%H:%M');
+    const xt = [...new Map(x.ticks(W < 500 ? 3 : 6).map((t) => [tf(t), t])).values()];
     svg.append('g').selectAll('text').data(xt).join('text').attr('x', (t) => x(t)).attr('y', H - 6).attr('text-anchor', 'middle')
-      .attr('font-size', 11).attr('fill', col('--muted')).text(fmt);
+      .attr('font-size', 11).attr('fill', col('--muted')).text(tf);
     for (const s of [...series].sort((a, b) => (a.k === strat) - (b.k === strat))) {
       if (s.pts.length < 2) continue;
       svg.append('path').datum(s.pts).attr('fill', 'none').attr('stroke', C[s.k]).attr('stroke-width', s.k === strat ? 2.5 : 1.5)
@@ -336,13 +381,13 @@
         const [mx] = d3.pointer(event);
         const t = x.invert(mx);
         tip.replaceChildren();
-        const k = document.createElement('div'); k.className = 'k'; k.textContent = when(t) + ' UTC'; tip.append(k);
+        const k = document.createElement('div'); k.className = 'k'; k.textContent = when(t); tip.append(k);
         for (const s of series) {
           if (!s.pts.length) continue;
           const p = s.pts[d3.bisector((p) => p.t).center(s.pts, t)];
           const row = document.createElement('div');
           const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = C[s.k];
-          row.append(sw, document.createTextNode(`${NAMES[s.k]}: ${signedSol(p.v)}`)); tip.append(row);
+          row.append(sw, document.createTextNode(`${NAMES[s.k]}: ${signedSol(p.v, 2)}`)); tip.append(row);
         }
         tip.hidden = false;
         const bx = (mx / W) * box.clientWidth;
@@ -355,76 +400,77 @@
   function openTable() {
     const tb = document.querySelector('#open-table tbody'); tb.replaceChildren();
     const rows = D.positions.filter((p) => stratOf(p) === strat).sort((a, b) => b.pnlSol - a.pnlSol);
-    if (!rows.length) return emptyRow(tb, 7, 'No open copies for this strategy right now.');
+    if (!rows.length) return emptyRow(tb, 6, 'Deze strategie heeft nu geen open kopieën.');
     for (const p of rows) {
       const tr = tb.insertRow();
       tokenCell(tr.insertCell(), p.symbol, p.mint);
       walletCell(tr.insertCell(), p.wallet);
       const o = tr.insertCell(); o.className = 'hide-narrow muted'; o.textContent = when(p.openedAt);
       const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
-      n(sol(p.entrySol, 2)); n(sol(p.valueSol + p.realizedSol, 3));
-      tone(n(signedSol(p.pnlSol)), p.pnlSol);
-      tone(n(pct(100 * p.pnlSol / p.entrySol), 'hide-narrow'), p.pnlSol);
+      n(sol(p.entrySol, 2), 'hide-narrow'); n(sol(p.valueSol + p.realizedSol, 3), 'hide-narrow');
+      const r = tone(n(`${signedSol(p.pnlSol, 3)}`), p.pnlSol);
+      const sm = document.createElement('div'); sm.className = 'reason'; sm.textContent = pct(100 * p.pnlSol / p.entrySol); r.append(sm);
     }
   }
 
   function walletTable() {
     const tb = document.querySelector('#wallet-table tbody'); tb.replaceChildren();
-    const rows = D.wallets.slice().sort((a, b) => (b.following - a.following) || (b.pnlSol - a.pnlSol));
-    if (!rows.length) return emptyRow(tb, 6, 'No wallets followed yet.');
-    const SRC = { scored: 'Scored', early: 'Early buyer', leaderboard: 'Leaderboard' };
+    const rows = D.wallets.filter((w) => w.following || w.positions).sort((a, b) => (b.following - a.following) || (b.pnlSol - a.pnlSol));
+    if (!rows.length) return emptyRow(tb, 5, 'Nog geen traders gevolgd.');
     for (const w of rows) {
       const tr = tb.insertRow();
       walletCell(tr.insertCell(), w.wallet);
-      const src = tr.insertCell(); src.className = 'muted'; src.textContent = SRC[w.source] || w.source;
       const s = tr.insertCell(); const pill = document.createElement('span');
-      pill.className = 'pill' + (w.dropped ? ' bot' : ''); pill.textContent = w.dropped ? 'dropped: copies lost' : w.following ? 'following' : 'no longer followed';
+      pill.className = 'pill' + (w.dropped ? ' bot' : w.following ? ' follow' : '');
+      pill.textContent = w.dropped ? 'gestopt: verlies' : w.following ? 'volgt' : 'niet meer gevolgd';
       s.append(pill);
       const n = (t) => { const td = tr.insertCell(); td.className = 'num'; td.textContent = t; return td; };
-      n(w.positions); n(w.closed ? `${w.wins}/${w.closed}` : '—');
-      tone(n(w.positions ? signedSol(w.pnlSol) : '—'), w.pnlSol);
+      n(w.positions || 0); n(w.closed ? `${w.wins} van ${w.closed}` : '—');
+      tone(n(w.positions ? signedSol(w.pnlSol, 2) : '—'), w.pnlSol);
     }
   }
 
   function closedTable() {
     const tb = document.querySelector('#closed-table tbody'); tb.replaceChildren();
     const rows = D.closed.filter((p) => stratOf(p) === strat);
-    if (!rows.length) return emptyRow(tb, 5, 'Nothing closed yet for this strategy.');
+    if (!rows.length) return emptyRow(tb, 5, 'Deze strategie heeft nog niets gesloten.');
     for (const p of rows) {
       const tr = tb.insertRow();
       tokenCell(tr.insertCell(), p.symbol, p.mint);
       const w = tr.insertCell(); w.className = 'hide-narrow'; walletCell(w, p.wallet);
       const c = tr.insertCell(); c.className = 'muted'; c.textContent = when(p.closedAt);
-      const r = tr.insertCell(); r.className = 'hide-narrow reason'; r.textContent = p.closeReason || 'wallet sold';
-      const v = tr.insertCell(); v.className = 'num'; v.textContent = signedSol(p.pnlSol); tone(v, p.pnlSol);
+      const r = tr.insertCell(); r.className = 'hide-narrow reason'; r.textContent = WHY[p.closeReason || 'wallet sold'] || p.closeReason;
+      const v = tr.insertCell(); v.className = 'num'; v.textContent = signedSol(p.pnlSol, 3); tone(v, p.pnlSol);
     }
   }
 
   function tradeTable() {
     const tb = document.querySelector('#trade-table tbody'); tb.replaceChildren();
-    const rows = D.trades.filter((t) => t.side === 'skip' || stratOf(t) === strat);
-    if (!rows.length) return emptyRow(tb, 7, 'No simulated trades yet.');
+    const skips = D.trades.filter((t) => t.side === 'skip');
+    $('skip-count').textContent = skips.length ? `${skips.length} overgeslagen in deze log` : '';
+    const rows = D.trades.filter((t) => (t.side === 'skip' ? showSkips : stratOf(t) === strat)).slice(0, 300);
+    if (!rows.length) return emptyRow(tb, 7, 'Nog geen gesimuleerde trades.');
     for (const t of rows) {
       const tr = tb.insertRow(); if (t.side === 'skip') tr.className = 'skiprow';
       const c = tr.insertCell(); c.className = 'muted'; c.textContent = when(t.time);
       const s = tr.insertCell();
-      if (t.side === 'buy') s.textContent = 'Buy';
-      else if (t.side === 'skip') s.textContent = `Skipped: ${SKIPS[t.reason] || t.reason}`;
+      if (t.side === 'buy') s.textContent = 'Kopen';
+      else if (t.side === 'skip') s.textContent = `Overgeslagen: ${SKIPS[t.reason] || t.reason}`;
       else {
-        const share = t.fraction != null && t.fraction < 0.98 ? d3.format('.0%')(t.fraction) : 'all';
-        s.textContent = t.reason && t.reason !== 'wallet sold' ? `Sell (${t.reason})` : `Sell ${share}`;
+        const share = t.fraction != null && t.fraction < 0.98 ? fmt('.0%')(t.fraction) : 'alles';
+        s.textContent = t.reason && t.reason !== 'wallet sold' ? `Verkopen (${WHY[t.reason] || t.reason})` : `Verkopen ${share}`;
       }
       tokenCell(tr.insertCell(), t.symbol, t.mint);
       const w = tr.insertCell(); w.className = 'hide-narrow'; walletCell(w, t.wallet);
-      const v = tr.insertCell(); v.className = 'num'; v.textContent = t.side === 'skip' ? '—' : (t.side === 'buy' ? '−' : '+') + d3.format(',.3f')(Math.abs(t.sol));
+      const v = tr.insertCell(); v.className = 'num'; v.textContent = t.side === 'skip' ? '—' : (t.side === 'buy' ? '−' : '+') + fmt(',.3f')(Math.abs(t.sol));
       const lag = tr.insertCell(); lag.className = 'num hide-narrow muted';
-      lag.textContent = t.side === 'skip' ? '' : t.lagSec != null ? `${d3.format('.0f')(t.lagSec)} s${t.fill === 'jupiter' ? '' : ' (est.)'}` : t.reason && t.reason !== 'wallet sold' ? 'rule' : 'hourly';
+      lag.textContent = t.side === 'skip' ? '' : t.lagSec != null ? `${fmt('.0f')(t.lagSec)} s${t.fill === 'jupiter' ? '' : ' (schatting)'}` : t.reason && t.reason !== 'wallet sold' ? 'regel' : 'uurlijks';
       const l = tr.insertCell(); l.className = 'hide-narrow data';
       if (isSig(t.leaderSig)) l.append(link('https://solscan.io/tx/' + t.leaderSig, t.leaderSig.slice(0, 8) + '…'));
     }
   }
 
-  function draw() { applyLive(); stratTable(); headline(); chart(); openTable(); walletTable(); closedTable(); tradeTable(); }
+  function draw() { applyLive(); headline(); stratTable(); chart(); openTable(); walletTable(); closedTable(); tradeTable(); }
 
   function pick(k) {
     if (!k || k === strat) return;
@@ -435,7 +481,15 @@
   document.querySelector('#strat-table tbody').addEventListener('click', (e) => pick(e.target.closest('tr')?.dataset.key));
   document.querySelector('#strat-table tbody').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e.target.closest('tr')?.dataset.key); } });
   $('seg-open').addEventListener('click', (e) => pick(e.target.closest('button')?.dataset.key));
+  $('show-skips').addEventListener('change', (e) => { showSkips = e.target.checked; try { localStorage.setItem('solchain-skips', showSkips ? '1' : '0'); } catch (err) {} if (D) tradeTable(); });
 
+  const getJson = (f) => fetch(`data/${f}.json?v=${Date.now()}`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const loadNames = () => Promise.all([getJson('names'), getJson('scores')]).then(([nm, sc]) => {
+    const m = new Map(Object.entries(nm || {}));
+    for (const r of (sc && sc.wallets) || []) { const n = nameOf(r); if (n) m.set(r.wallet, n); }
+    NAMES_W = m;
+    if (D) draw();
+  });
   const load = () => fetch(`data/paper.json?v=${Date.now()}`, { cache: 'no-store' })
     .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then((d) => {
@@ -445,13 +499,15 @@
       draw();
       if (first) livePrices();
     });
+  loadNames();
   load().catch(() => {
-    $('take').textContent = 'The simulation has not run yet.';
-    $('fresh').textContent = 'No data'; $('fresh').classList.add('stale');
-    for (const id of ['open-table', 'wallet-table', 'closed-table', 'trade-table']) emptyRow(document.querySelector(`#${id} tbody`), 7, 'Waiting for the first check.');
-    $('chart').innerHTML = '<div class="empty">Waiting for the first check.</div>';
+    $('take').textContent = 'De simulatie heeft nog niet gedraaid.';
+    $('fresh').textContent = 'Geen data'; $('fresh').classList.add('stale');
+    for (const id of ['open-table', 'wallet-table', 'closed-table', 'trade-table']) emptyRow(document.querySelector(`#${id} tbody`), 7, 'Wachten op de eerste check.');
+    $('chart').innerHTML = '<div class="empty">Wachten op de eerste check.</div>';
   });
   setInterval(() => load().catch(() => {}), 30000);
+  setInterval(loadNames, 600000);
   setInterval(livePrices, 15000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { load().catch(() => {}); livePrices(); } });
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => D && chart(), 150); });
