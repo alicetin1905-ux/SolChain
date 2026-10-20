@@ -48,7 +48,7 @@ def jup_fill(side, ev, qty):
         if dec is None:
             raise RuntimeError("unknown decimals")
         if side == "buy":
-            spend = P.TRADE_SOL - P.FEE_SOL
+            spend = ev.get("spendSol", P.TRADE_SOL) - P.FEE_SOL
             out = jup_quote(P.WSOL, ev["mint"], spend * 1e9) / 10 ** dec
             return spend / out, "jupiter"
         out_sol = jup_quote(ev["mint"], P.WSOL, qty * 10 ** dec) / 1e9
@@ -67,7 +67,7 @@ def git_sync(commit):
     if NO_GIT:
         return
     if commit:
-        git("add", f"{P.DATA}/paper.json", P.STATE)
+        git("add", f"{P.DATA}/paper.json", P.STATE, f"{P.DATA}/archive")
         if git("diff", "--cached", "--quiet").returncode != 0:
             git("commit", "-q", "-m", "Update paper copy-trade (live)")
     code_before = git("rev-parse", "HEAD:scripts").stdout
@@ -257,5 +257,5 @@ def serve_dashboard():
 
 if __name__ == "__main__":
     serve_dashboard()
-    log(f"live paper engine starting; {P.FOLLOW} wallets, {P.TRADE_SOL} SOL per buy")
+    log(f"live paper engine starting; up to {P.FOLLOW} wallets, {P.WALLET_SOL:g} SOL paper wallet per strategy, {P.BUY_PCT:.0%} per buy")
     asyncio.run(Engine().run())

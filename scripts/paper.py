@@ -13,7 +13,9 @@ Settings (environment):
   CHASE_PCT      skip a copy when the live price is this much above the wallet's own (default 30)
   TOP10_MAX_PCT  skip tokens whose 10 largest holders, pool left out, own more than this (default 40)
   NTFY_TOPIC     ntfy.sh topic for phone notifications (keep it secret: anyone with the name can read them)
-  TRADE_SOL      SOL per copied buy (default 1)
+  TRADE_SOL      SOL per copied buy in the wallet backtest of score.py (default 1)
+  WALLET_SOL     SOL each strategy's paper wallet starts with (default 5)
+  BUY_PCT        share of a strategy's wallet value each copied buy spends (default 20)
   SLIPPAGE_PCT   price penalty per fill for arriving after the leader (default 3)
   FEE_SOL        network + priority fee per fill (default 0.001)
 """
@@ -27,6 +29,9 @@ STABLES = {"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2
 FOLLOW = int(os.environ.get("FOLLOW") or 10)
 EARLY_FOLLOW = int(os.environ.get("EARLY_FOLLOW") or 0)  # early buyers snipe tokens of a few $1000s: too early to copy
 TRADE_SOL = float(os.environ.get("TRADE_SOL") or 1)
+WALLET_SOL = float(os.environ.get("WALLET_SOL") or 5)
+BUY_PCT = float(os.environ.get("BUY_PCT") or 20) / 100
+MIN_BUY_SOL = 0.05  # a smaller buy would mostly pay fees
 SLIP = float(os.environ.get("SLIPPAGE_PCT") or 3) / 100
 FEE_SOL = float(os.environ.get("FEE_SOL") or 0.001)
 MIN_LIQ_USD = 5_000    # a DEX pool with less than this can't take a 1 SOL trade without moving the price a lot
@@ -44,6 +49,10 @@ OUTBOX = []
 # Every copied buy is followed in each of these exit strategies side by side, 1 position each.
 STRATEGIES = {
     "follow": "Sell when the wallet sells",
+}
+# exits tried in the first run (see data/archive/); "follow" did best, so the paper wallet only runs that one now.
+# Adding "stop30", "tp2x" or "max24h" back here runs them again, each with its own wallet.
+OTHER_EXITS = {
     "stop30": "Also sell everything at -30%",
     "tp2x": "Sell half at 2x, then trail the rest 30% below its peak",
     "max24h": "Also sell everything after 24 hours",
@@ -197,11 +206,41 @@ def flush_notifications():
             return
 
 
+def new_state(old=None):
+    """A fresh run: every strategy gets a paper wallet of WALLET_SOL. The followed wallets and their last seen
+    transactions carry over, so nothing from before is copied again."""
+    old = old or {}
+    return {"startedAt": now_iso(), "wallets": old.get("wallets", {}), "positions": [], "trades": [], "equity": [], "closed": [],
+            "tokenChecks": old.get("tokenChecks", {}), "archives": old.get("archives", []),
+            "wallet": {"startSol": WALLET_SOL, "buyPct": BUY_PCT, "cash": {k: WALLET_SOL for k in STRATEGIES}}}
+
+
+def archive_run(st):
+    """Keep a run that had no wallet limit in data/archive/, and note its results for the dashboard."""
+    os.makedirs(f"{DATA}/archive", exist_ok=True)
+    day = time.strftime("%Y-%m-%d")
+    for src, name in ((f"{DATA}/paper.json", f"paper_{day}.json"), (STATE, f"paper_state_{day}.json")):
+        if os.path.exists(src):
+            with open(src) as a, open(f"{DATA}/archive/{name}", "w") as b:
+                b.write(a.read())
+    closed = st.get("closed", [])
+    totals = strategy_totals(st.get("positions", []), closed, names=STRATEGIES | OTHER_EXITS)
+    return {"file": f"archive/paper_{day}.json", "from": st.get("startedAt"), "to": now_iso(), "tradeSol": TRADE_SOL,
+            "strategies": {k: {x: v[x] for x in ("totalPnlSol", "closedPositions", "winRatePct")} for k, v in totals.items()}}
+
+
 def load_state():
     try:
         st = json.load(open(STATE))
     except FileNotFoundError:
-        st = {"startedAt": now_iso(), "wallets": {}, "positions": [], "trades": [], "equity": []}
+        st = new_state()
+    if "wallet" not in st:  # a run from before the paper wallets: archive it and start the wallets now
+        for p in st.get("positions", []) + st.get("closed", []):
+            p.setdefault("strategy", "follow")
+        arch = archive_run(st)
+        st = new_state(st)
+        st["archives"].append(arch)
+        print(f"archived the run without a wallet limit to data/{arch['file']}; paper wallets start with {WALLET_SOL:g} SOL", file=sys.stderr)
     skips = st.setdefault("skips", {})
     if "skipped" in st:  # older state kept one counter for low liquidity
         skips["lowLiquidity"] = skips.get("lowLiquidity", 0) + st.pop("skipped")
@@ -328,9 +367,16 @@ def token_risk(st, mint):
     return reason
 
 
+def wallet_value(st, strat, positions=None):
+    """Free SOL plus the last known value of the open copies in a strategy's paper wallet."""
+    held = positions if positions is not None else st["positions"]
+    return st["wallet"]["cash"][strat] + sum(p.get("valueSol", p["entrySol"]) for p in held if p["strategy"] == strat)
+
+
 def sell(st, p, q, px, when, src, reason, frac=None, lag=None, sig=None, leader_px=None):
-    """Sell q tokens of a copy at px SOL each. Returns True when the position is now closed."""
+    """Sell q tokens of a copy at px SOL each, into the strategy's wallet. Returns True when the position is now closed."""
     got = q * px - FEE_SOL
+    st["wallet"]["cash"][p["strategy"]] += got
     p["qtyLeft"] -= q
     p["realizedSol"] += got
     st["trades"].append({"time": now_iso(when), "wallet": p["wallet"], "symbol": p["symbol"], "mint": p["mint"],
@@ -374,7 +420,15 @@ def apply_events(st, events, info, fill=model_fill):
                 skip = token_risk(st, mint)
             px = src = None
             leader_px = ev["sol"] / ev["dtok"]
+            held = list(open_pos.values())
+            sizes = {}
+            for strat in STRATEGIES:
+                size = min(st["wallet"]["cash"][strat], BUY_PCT * wallet_value(st, strat, held))
+                sizes[strat] = size if size >= MIN_BUY_SOL else None
+            if not skip and not any(sizes.values()):
+                skip = "noCash"  # every strategy's wallet is fully in open copies
             if not skip:
+                ev["spendSol"] = max(v for v in sizes.values() if v)
                 px, src = fill("buy", ev, None)
                 if not px:
                     continue
@@ -394,21 +448,28 @@ def apply_events(st, events, info, fill=model_fill):
                                      "mint": mint, "side": "skip", "reason": skip, "sol": 0, "lagSec": lag, "leaderSig": ev["sig"],
                                      "price": px, "fill": src, "leaderPrice": leader_px})
                 continue
-            qty = (TRADE_SOL - FEE_SOL) / px
             sym = ti.get("symbol") or mint[:4] + "…"
             if time.time() - ev["time"] < RECENT_SEC:
                 src_name = {"scored": "scored wallet", "early": "early buyer"}.get(st["wallets"][w].get("source"), "wallet")
-                notify(f"Copied a buy: {sym}", f"{TRADE_SOL:g} SOL per strategy, copying {src_name} {short(w)}"
+                spent = sizes.get("follow") or ev["spendSol"]
+                notify(f"Copied a buy: {sym}", f"{spent:.2f} SOL ({BUY_PCT:.0%} of the wallet), copying {src_name} {short(w)}"
                        + (f", {lag:.0f} s after it." if lag is not None else "."), ["green_circle"])
             else:
                 st["caughtUp"] = st.get("caughtUp", 0) + 1
-            for strat in STRATEGIES:
+            for strat, size in sizes.items():
+                if not size:
+                    skips["noCash"] = skips.get("noCash", 0) + 1
+                    st["trades"].append({"time": now_iso(ev["time"]), "wallet": w, "symbol": sym, "mint": mint, "strategy": strat,
+                                         "side": "skip", "reason": "noCash", "sol": 0, "lagSec": lag, "leaderSig": ev["sig"]})
+                    continue
+                st["wallet"]["cash"][strat] -= size
+                qty = (size - FEE_SOL) / px
                 open_pos[(w, mint, strat)] = {"wallet": w, "mint": mint, "symbol": sym, "strategy": strat,
-                                              "openedAt": now_iso(ev["time"]), "entrySol": TRADE_SOL, "qty": qty, "qtyLeft": qty,
+                                              "openedAt": now_iso(ev["time"]), "entrySol": round(size, 6), "qty": qty, "qtyLeft": qty,
                                               "entryPrice": px, "peak": px, "realizedSol": 0.0, "leaderSig": ev["sig"],
-                                              "decimals": ev.get("decimals")}
+                                              "decimals": ev.get("decimals"), "valueSol": size - FEE_SOL}
                 st["trades"].append({"time": now_iso(ev["time"]), "wallet": w, "symbol": sym, "mint": mint, "strategy": strat,
-                                     "side": "buy", "sol": round(TRADE_SOL, 4), "price": px, "fill": src, "lagSec": lag,
+                                     "side": "buy", "sol": round(size, 4), "price": px, "fill": src, "lagSec": lag,
                                      "leaderSig": ev["sig"], "leaderPrice": leader_px})
         elif mine:  # leader sold: every strategy still holding this copy sells the same share
             frac = min(1.0, abs(ev["dtok"]) / ev["pre"]) if ev["pre"] > 0 else 1.0
@@ -454,9 +515,9 @@ def apply_exit_rules(st, cur_price):
     st["positions"] = still
 
 
-def strategy_totals(positions, closed):
+def strategy_totals(positions, closed, cash=None, start=None, names=None):
     out = {}
-    for name, label in STRATEGIES.items():
+    for name, label in (names or STRATEGIES).items():
         op = [p for p in positions if p["strategy"] == name]
         cl = [p for p in closed if p["strategy"] == name]
         realized, unreal = sum(p["pnlSol"] for p in cl), sum(p["pnlSol"] for p in op)
@@ -464,6 +525,10 @@ def strategy_totals(positions, closed):
                      "totalPnlSol": round(realized + unreal, 4), "openPositions": len(op), "closedPositions": len(cl),
                      "winRatePct": round(100 * sum(p["pnlSol"] > 0 for p in cl) / len(cl), 1) if cl else None,
                      "capitalInUseSol": round(sum(p["entrySol"] for p in op), 2)}
+        if cash is not None:
+            value = cash[name] + sum(p.get("valueSol", 0) for p in op)
+            out[name].update({"cashSol": round(cash[name], 4), "walletSol": round(value, 4),
+                              "returnPct": round(100 * (value / start - 1), 2) if start else None})
     return out
 
 
@@ -479,10 +544,11 @@ def publish(st, sp, top, engine):
         p["pnlSol"] = p["realizedSol"] + p["valueSol"] - p["entrySol"]
     positions = st["positions"]
     closed = st.get("closed", [])
-    strats = strategy_totals(positions, closed)
+    strats = strategy_totals(positions, closed, st["wallet"]["cash"], st["wallet"]["startSol"])
     f = strats["follow"]
     point = {"t": now_iso(), "realizedSol": f["realizedSol"], "openPnlSol": f["openPnlSol"], "open": f["openPositions"],
-             "byStrategy": {k: v["totalPnlSol"] for k, v in strats.items()}}
+             "byStrategy": {k: v["totalPnlSol"] for k, v in strats.items()},
+             "walletByStrategy": {k: v["walletSol"] for k, v in strats.items()}}
     # live runs publish often; keep at most one equity point per 10-minute slot (the latest in it)
     if st["equity"] and int(epoch(st["equity"][-1]["t"]) // 600) == int(time.time() // 600):
         st["equity"][-1] = point
@@ -511,7 +577,8 @@ def publish(st, sp, top, engine):
     lags = [t["lagSec"] for t in st["trades"] if t.get("lagSec") is not None and t["side"] == "buy"]
     sources = collections.Counter(st["wallets"][w].get("source") for w in top)
     summary = {"startedAt": st["startedAt"], "updatedAt": st["updatedAt"], "engine": engine, "solUsd": sp,
-               "tradeSol": TRADE_SOL, "slippagePct": SLIP * 100, "feeSol": FEE_SOL, "chasePct": CHASE * 100,
+               "tradeSol": TRADE_SOL, "walletStartSol": st["wallet"]["startSol"], "buyPct": st["wallet"]["buyPct"] * 100,
+               "minBuySol": MIN_BUY_SOL, "archives": st.get("archives", []), "slippagePct": SLIP * 100, "feeSol": FEE_SOL, "chasePct": CHASE * 100,
                "top10MaxPct": TOP10_MAX * 100, "dropAfter": DROP_AFTER, "following": len(top),
                "followingEarly": sources.get("early", 0), "followingScored": sources.get("scored", 0),
                "realizedSol": f["realizedSol"], "openPnlSol": f["openPnlSol"], "totalPnlSol": f["totalPnlSol"],
@@ -532,8 +599,8 @@ def publish(st, sp, top, engine):
         st["lastSummary"] = today
         json.dump(st, open(STATE, "w"))
         names = {"follow": "Follow", "stop30": "-30% stop", "tp2x": "2x then trail", "max24h": "24 hours"}
-        lines = [f"{names.get(k, k)}: {v['totalPnlSol']:+.3f} SOL ({v['closedPositions']} closed, {v['openPositions']} open)" for k, v in strats.items()]
-        best = max(strats, key=lambda k: strats[k]["totalPnlSol"])
+        lines = [f"{names.get(k, k)}: wallet {v['walletSol']:.2f} SOL ({v['returnPct']:+.1f}%), {v['openPositions']} open" for k, v in strats.items()]
+        best = max(strats, key=lambda k: strats[k]["walletSol"])
         notify(f"SolChain today: best is {names.get(best, best)}", "\n".join(lines), ["bar_chart"], 2)
     flush_notifications()
 

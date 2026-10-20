@@ -209,15 +209,19 @@ def fill_cost(gaps, wallet):
 
 
 def live_results():
-    """Per wallet: (number of closed live copies, their total PnL in SOL), "sell when the wallet sells" strategy."""
+    """Per wallet: (number of closed live copies, their total PnL in SOL per 1 SOL copy), "sell when the wallet sells"."""
+    import glob
     res = collections.defaultdict(lambda: [0, 0.0])
-    try:
-        for p in json.load(open(f"{P.DATA}/paper.json")).get("closed", []):
-            if p.get("strategy") == "follow" and p.get("pnlSol") is not None:
+    # earlier runs (data/archive/) count too; results are per SOL put in, since run sizes differ
+    for path in [f"{P.DATA}/paper.json"] + sorted(glob.glob(f"{P.DATA}/archive/paper_2*.json")):
+        try:
+            closed = json.load(open(path)).get("closed", [])
+        except (FileNotFoundError, ValueError):
+            continue
+        for p in closed:
+            if p.get("strategy", "follow") == "follow" and p.get("pnlSol") is not None and p.get("entrySol"):
                 res[p["wallet"]][0] += 1
-                res[p["wallet"]][1] += p["pnlSol"]
-    except FileNotFoundError:
-        pass
+                res[p["wallet"]][1] += p["pnlSol"] / p["entrySol"]
     return res
 
 
