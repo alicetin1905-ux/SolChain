@@ -2,7 +2,7 @@ name: Scan Kolscan traders
 
 on:
   schedule:
-    - cron: "17 3 * * 1"  # weekly, Monday night
+    - cron: "17 3 1 * *"  # monthly, on the night of the 1st (about 30,000 RPC credits a scan)
   workflow_dispatch:
 
 permissions:
