@@ -73,6 +73,13 @@
     <p class="when" id="archive" hidden></p>
   </header>
 
+  <section class="card" id="open">
+    <div class="detail-head"><h2>Open posities</h2><div class="seg" id="seg-open" role="group" aria-label="Strategie"></div></div>
+    <p class="open-sum" id="open-sum"></p>
+    <div class="pos-list" id="open-list"></div>
+    <p class="note">Elke 15 seconden opnieuw gewaardeerd met live prijzen van Dexscreener. Tik op een token voor de grafiek.</p>
+  </section>
+
   <section class="tape" id="headline" aria-label="Kerncijfers">
     <div class="fig main"><span class="fig-label" id="k-total-label">Paper wallet</span><span class="fig-value" id="k-total">—</span><span class="fig-note" id="k-total-usd">—</span></div>
     <div class="fig"><span class="fig-label">Vandaag gesloten</span><span class="fig-value" id="k-today">—</span><span class="fig-note" id="k-today-n">—</span></div>
@@ -103,13 +110,6 @@
     <div class="line-chart" id="chart"></div>
   </section>
 
-  <section class="card" id="open">
-    <div class="detail-head"><h2>Open posities</h2><div class="seg" id="seg-open" role="group" aria-label="Strategie"></div></div>
-    <p class="open-sum" id="open-sum"></p>
-    <div class="pos-list" id="open-list"></div>
-    <p class="note">Elke 15 seconden opnieuw gewaardeerd met live prijzen van Dexscreener. Tik op een token voor de grafiek.</p>
-  </section>
-
   <div class="row">
     <section class="card" id="wallets">
       <h2>Gevolgde traders</h2>
@@ -120,7 +120,7 @@
             <th class="plain"><span>Trader</span></th>
             <th class="plain"><span>Status</span></th>
             <th class="plain num hide-narrow"><span>Kopieën</span></th>
-            <th class="plain num"><span>Gewonnen</span></th>
+            <th class="plain num hide-narrow"><span>Gewonnen</span></th>
             <th class="plain num"><span>Resultaat</span></th>
           </tr></thead>
           <tbody></tbody>
@@ -382,14 +382,15 @@
     const lo = Math.min(ref, d3.min(all, (p) => p.v)), hi = Math.max(ref, d3.max(all, (p) => p.v));
     const y = d3.scaleLinear([lo, hi === lo ? lo + 1 : hi], [H - m.b, m.t]).nice();
     const yt = y.ticks(4);
+    const span_v = y.domain()[1] - y.domain()[0], yd = span_v < 2 ? 2 : span_v < 20 ? 1 : 0;  // enough decimals for the ticks to differ
     const probe = svg.append('text').attr('font-size', 11);
-    m.l = (d3.max(yt, (t) => { probe.text(sol(t, 0)); return probe.node().getComputedTextLength(); }) || 30) + 10;
+    m.l = (d3.max(yt, (t) => { probe.text(sol(t, yd)); return probe.node().getComputedTextLength(); }) || 30) + 10;
     probe.remove();
     const x = d3.scaleTime(d3.extent(all, (p) => p.t), [m.l, W - m.r]);
     svg.append('g').selectAll('line').data(yt).join('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', (t) => y(t)).attr('y2', (t) => y(t))
       .attr('stroke', (t) => (t === ref ? col('--muted') : col('--line'))).attr('stroke-width', 1);
     svg.append('g').selectAll('text').data(yt).join('text').attr('x', m.l - 8).attr('y', (t) => y(t)).attr('dy', '0.35em').attr('text-anchor', 'end')
-      .attr('font-size', 11).attr('fill', col('--muted')).text((t) => sol(t, 0));
+      .attr('font-size', 11).attr('fill', col('--muted')).text((t) => sol(t, yd));
     const span = x.domain()[1] - x.domain()[0];
     const tf = NL.format(span > 3 * 864e5 ? '%-d %b' : span > 864e5 ? '%-d %b %H:%M' : '%H:%M');
     const xt = [...new Map(x.ticks(W < 500 ? 3 : 6).map((t) => [tf(t), t])).values()];
@@ -478,7 +479,7 @@
       pill.textContent = w.dropped ? 'gestopt: verlies' : w.following ? 'volgt' : 'niet meer gevolgd';
       s.append(pill);
       const n = (t, cls) => { const td = tr.insertCell(); td.className = 'num' + (cls ? ' ' + cls : ''); td.textContent = t; return td; };
-      n(w.positions || 0, 'hide-narrow'); n(w.closed ? `${w.wins} van ${w.closed}` : '—');
+      n(w.positions || 0, 'hide-narrow'); n(w.closed ? `${w.wins} van ${w.closed}` : '—', 'hide-narrow');
       tone(n(w.positions ? signedSol(w.pnlSol, 2) : '—'), w.pnlSol);
     }
   }
