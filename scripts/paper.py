@@ -210,7 +210,10 @@ def new_state(old=None):
     """A fresh run: every strategy gets a paper wallet of WALLET_SOL. The followed wallets and their last seen
     transactions carry over, so nothing from before is copied again."""
     old = old or {}
-    return {"startedAt": now_iso(), "wallets": old.get("wallets", {}), "positions": [], "trades": [], "equity": [], "closed": [],
+    # wallets whose copies lost money stay dropped in the new run
+    blocked = sorted(set(old.get("blocked", [])) | (losing_wallets(old) if old.get("closed") else set()))
+    wallets = {w: {**i, "following": False} for w, i in old.get("wallets", {}).items()}
+    return {"startedAt": now_iso(), "wallets": wallets, "blocked": blocked, "positions": [], "trades": [], "equity": [], "closed": [],
             "tokenChecks": old.get("tokenChecks", {}), "archives": old.get("archives", []),
             "wallet": {"startSol": WALLET_SOL, "buyPct": BUY_PCT, "cash": {k: WALLET_SOL for k in STRATEGIES}}}
 
@@ -308,21 +311,18 @@ def losing_wallets(st):
     """Wallets whose copies (follow strategy) closed at a net loss after at least DROP_AFTER of them."""
     res = collections.defaultdict(list)
     for p in st.get("closed", []):
-        if p["strategy"] == "follow":
+        if p.get("strategy", "follow") == "follow":
             res[p["wallet"]].append(p["pnlSol"])
-    return {w for w, pnl in res.items() if len(pnl) >= DROP_AFTER and sum(pnl) < 0}
+    return {w for w, pnl in res.items() if len(pnl) >= DROP_AFTER and sum(pnl) < 0} | set(st.get("blocked", []))
 
 
 def follow_list(st):
-    """Scored wallets (or the leaderboard's top) plus the best early buyers, minus wallets whose copies lose.
+    """Scored wallets plus the best early buyers, minus wallets whose copies lose.
     Marks who is followed and returns (followed, wallets to watch)."""
     dropped = losing_wallets(st)
+    # only wallets that pass scoring: with none left the wallet waits, rather than copy unchecked leaderboard wallets
     main = [w for w in scored_wallets() if w not in dropped][:FOLLOW]
     source = "scored"
-    if not main:
-        traders = json.load(open(f"{DATA}/traders.json"))
-        board = [r["wallet"] for r in sorted((r for r in traders if r["botLike"] == "no"), key=lambda r: -r["pnlUsd"])]
-        main, source = [w for w in board if w not in dropped][:FOLLOW], "leaderboard"
     unfit = failed_scoring()
     early = [w for w in early_buyers() if w not in main and w not in dropped and w not in unfit][:EARLY_FOLLOW]
     top = main + early
