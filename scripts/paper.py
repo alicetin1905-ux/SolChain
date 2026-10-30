@@ -273,6 +273,13 @@ def load_state():
         st["archives"].append(arch)
         st["wallet"]["resetAt"] = at
         print(f"reset: archived the run to data/{arch['file']}; the paper wallet starts again with {WALLET_SOL:g} SOL", file=sys.stderr)
+    if "blocked" not in st:  # a reset made before blocked wallets carried over: take them from the archived run
+        import glob
+        prev = sorted(glob.glob(f"{DATA}/archive/paper_state_*.json"))
+        try:
+            st["blocked"] = sorted(losing_wallets(json.load(open(prev[-1])))) if prev else []
+        except ValueError:
+            st["blocked"] = []
     skips = st.setdefault("skips", {})
     if "skipped" in st:  # older state kept one counter for low liquidity
         skips["lowLiquidity"] = skips.get("lowLiquidity", 0) + st.pop("skipped")
