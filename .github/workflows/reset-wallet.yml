@@ -1,0 +1,30 @@
+name: Reset paper wallet
+
+# Run this from the Actions tab to archive the current paper wallet and start a fresh one.
+# The Mac engine picks the request up on its next sync (within about 10 minutes).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-commit
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Ask the engine for a fresh wallet
+        run: |
+          echo "{\"resetAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > data/reset.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/reset.json
+          git commit -m "Reset the paper wallet"
+          git pull --rebase origin main
+          git push

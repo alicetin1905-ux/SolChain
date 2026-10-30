@@ -71,6 +71,7 @@ def git_sync(commit):
         if git("diff", "--cached", "--quiet").returncode != 0:
             git("commit", "-q", "-m", "Update paper copy-trade (live)")
     code_before = git("rev-parse", "HEAD:scripts").stdout
+    reset_before = git("rev-parse", f"HEAD:{P.DATA}/reset.json").stdout
     r = git("pull", "-q", "--rebase", "--autostash", "origin", "main")
     if r.returncode != 0:
         git("rebase", "--abort")
@@ -83,6 +84,9 @@ def git_sync(commit):
     if git("rev-parse", "HEAD:scripts").stdout != code_before and os.environ.get("SOLCHAIN_SERVICE") == "1":
         log("new engine code pulled from GitHub; restarting to use it")
         os._exit(0)  # launchd (mac/install.sh) starts the engine again with the new code
+    if git("rev-parse", f"HEAD:{P.DATA}/reset.json").stdout != reset_before and os.environ.get("SOLCHAIN_SERVICE") == "1":
+        log("wallet reset requested on GitHub; restarting to start a fresh wallet")
+        os._exit(0)
 
 
 def log_trades(trades):

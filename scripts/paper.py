@@ -216,17 +216,39 @@ def new_state(old=None):
 
 
 def archive_run(st):
-    """Keep a run that had no wallet limit in data/archive/, and note its results for the dashboard."""
+    """Keep a finished run in data/archive/, and note its results for the dashboard."""
     os.makedirs(f"{DATA}/archive", exist_ok=True)
     day = time.strftime("%Y-%m-%d")
+    if os.path.exists(f"{DATA}/archive/paper_{day}.json"):
+        day = time.strftime("%Y-%m-%d_%H%M")
     for src, name in ((f"{DATA}/paper.json", f"paper_{day}.json"), (STATE, f"paper_state_{day}.json")):
         if os.path.exists(src):
             with open(src) as a, open(f"{DATA}/archive/{name}", "w") as b:
                 b.write(a.read())
-    closed = st.get("closed", [])
-    totals = strategy_totals(st.get("positions", []), closed, names=STRATEGIES | OTHER_EXITS)
-    return {"file": f"archive/paper_{day}.json", "from": st.get("startedAt"), "to": now_iso(), "tradeSol": TRADE_SOL,
-            "strategies": {k: {x: v[x] for x in ("totalPnlSol", "closedPositions", "winRatePct")} for k, v in totals.items()}}
+    closed, positions, wallet = st.get("closed", []), st.get("positions", []), st.get("wallet")
+    for p in positions:
+        p.setdefault("pnlSol", p.get("realizedSol", 0) + p.get("valueSol", p["entrySol"]) - p["entrySol"])
+    if wallet:
+        totals = strategy_totals(positions, closed, wallet["cash"], wallet["startSol"], {k: STRATEGIES.get(k, OTHER_EXITS.get(k, k)) for k in wallet["cash"]})
+    else:
+        totals = strategy_totals(positions, closed, names=STRATEGIES | OTHER_EXITS)
+    keep = ("totalPnlSol", "closedPositions", "winRatePct", "walletSol", "returnPct")
+    out = {"file": f"archive/paper_{day}.json", "from": st.get("startedAt"), "to": now_iso(), "tradeSol": TRADE_SOL,
+           "strategies": {k: {x: v[x] for x in keep if x in v} for k, v in totals.items()}}
+    if wallet:
+        out.update({"walletStartSol": wallet["startSol"], "buyPct": wallet["buyPct"] * 100})
+    return out
+
+
+def reset_requested(st):
+    """The resetAt of data/reset.json when it asks for a fresh wallet this run has not started from yet."""
+    try:
+        at = json.load(open(f"{DATA}/reset.json")).get("resetAt")
+    except (FileNotFoundError, ValueError):
+        return None
+    if at and at != st.get("wallet", {}).get("resetAt") and epoch(at) > epoch(st.get("startedAt") or at):
+        return at
+    return None
 
 
 def load_state():
@@ -241,6 +263,13 @@ def load_state():
         st = new_state(st)
         st["archives"].append(arch)
         print(f"archived the run without a wallet limit to data/{arch['file']}; paper wallets start with {WALLET_SOL:g} SOL", file=sys.stderr)
+    at = reset_requested(st)
+    if at:  # data/reset.json asks for a fresh wallet: archive this run and start again
+        arch = archive_run(st)
+        st = new_state(st)
+        st["archives"].append(arch)
+        st["wallet"]["resetAt"] = at
+        print(f"reset: archived the run to data/{arch['file']}; the paper wallet starts again with {WALLET_SOL:g} SOL", file=sys.stderr)
     skips = st.setdefault("skips", {})
     if "skipped" in st:  # older state kept one counter for low liquidity
         skips["lowLiquidity"] = skips.get("lowLiquidity", 0) + st.pop("skipped")

@@ -321,12 +321,16 @@
       $('k-total').textContent = signedSol(cur.totalPnlSol, 2); tone($('k-total'), cur.totalPnlSol);
       $('k-total-usd').textContent = `≈ ${usd(cur.totalPnlSol * s.solUsd)} · sinds ${when(s.startedAt)}`;
     }
-    const arch = (s.archives || []).filter((a) => a.strategies && a.strategies.follow);
+    const arch = (s.archives || []).filter((a) => a.strategies && a.strategies.follow).slice().reverse();
     $('archive').hidden = !arch.length;
-    if (arch.length) {
-      const a = arch[arch.length - 1], f = a.strategies.follow;
-      $('archive').textContent = `Eerste test zonder wallet-limiet (${NL.format('%-d %b')(new Date(a.from))} – ${NL.format('%-d %b')(new Date(a.to))}, ${sol(a.tradeSol, 0)} per aankoop): "Volg de trader" ${signedSol(f.totalPnlSol, 2)} over ${f.closedPositions} gesloten kopieën.`;
-    }
+    $('archive').replaceChildren(...arch.map((a, i) => {
+      const f = a.strategies.follow, d = `${NL.format('%-d %b')(new Date(a.from))} – ${NL.format('%-d %b')(new Date(a.to))}`;
+      const line = document.createElement('div');
+      line.textContent = a.walletStartSol != null
+        ? `Vorige wallet (${d}): ${sol(a.walletStartSol, 0)} → ${sol(f.walletSol, 2)} (${pct(f.returnPct)}), ${f.closedPositions} gesloten kopieën.`
+        : `Eerste test zonder wallet-limiet (${d}, ${sol(a.tradeSol, 0)} per aankoop): ${signedSol(f.totalPnlSol, 2)} over ${f.closedPositions} gesloten kopieën.`;
+      return line;
+    }));
     const ct = closedToday(), td = d3.sum(ct, (p) => p.pnlSol), t0 = today0();
     const buys = D.trades.filter((t) => t.side === 'buy' && stratOf(t) === strat && new Date(t.time) >= t0).length;
     $('k-today').textContent = ct.length ? signedSol(td, 2) : '—'; tone($('k-today'), td);
@@ -338,9 +342,10 @@
     $('k-closed').textContent = cur.closedPositions ? `${cur.closedPositions} gesloten, ${fmt('.0f')(cur.winRatePct)}% met winst` : 'Nog niets gesloten';
     const ss = s.strategies || { follow: s };
     const best = ORDER.filter((k) => ss[k] && ss[k].closedPositions + ss[k].openPositions).sort((a, b) => ss[b].totalPnlSol - ss[a].totalPnlSol)[0];
-    const names = D.wallets.filter((w) => w.following).map((w) => NAMES_W.get(w.wallet) || short(w.wallet));
     const per = s.buyPct != null ? `${fmt('.0f')(s.buyPct)}% van de wallet` : sol(s.tradeSol, 0);
-    $('take').textContent = `Volgt ${s.following} trader${s.following === 1 ? '' : 's'}${names.length ? ` (${names.join(', ')})` : ''} en koopt per kopie voor ${per}.`
+    const named = D.wallets.filter((w) => w.following && NAMES_W.get(w.wallet)).map((w) => NAMES_W.get(w.wallet));
+    const who = named.length ? ` (${named.slice(0, 3).join(', ')}${s.following > Math.min(3, named.length) ? ` en ${s.following - Math.min(3, named.length)} andere` : ''})` : '';
+    $('take').textContent = `Volgt ${s.following} trader${s.following === 1 ? '' : 's'}${who} en koopt per kopie voor ${per}.`
       + (!many ? ' Verkoopt zodra de trader verkoopt.' : best ? ` Beste strategie tot nu toe: "${NAMES[best]}" met ${signedSol(ss[best].totalPnlSol, 2)}.` : ' Nog geen kopieën.');
     $('when').textContent = `Posities bijgewerkt ${when(s.updatedAt)}.`;
     $('fresh').textContent = `Bijgewerkt ${ago(s.updatedAt)}`;
