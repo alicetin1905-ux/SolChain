@@ -41,7 +41,7 @@ def main():
         print(f"  {i}/{len(todo)} {w[:6]} {kols[w][:20]}: " + ("too busy" if swaps is None else f"{len(swaps)} swaps"), file=sys.stderr)
     mints = {s["mint"] for swaps, _, _ in hist.values() for s in swaps or []}
     info = P.token_info(mints) if mints else {}
-    prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items() if P.tradable(i)}
+    prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items() if P.sellable(i)}
     supply = {m: i["marketCapUsd"] / i["priceUsd"] for m, i in info.items() if i.get("priceUsd") and i.get("marketCapUsd")}
     rows = []
     for w, (swaps, rate, span) in hist.items():

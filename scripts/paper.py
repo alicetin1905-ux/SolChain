@@ -15,7 +15,7 @@ Settings (environment):
   NTFY_TOPIC     ntfy.sh topic for phone notifications (keep it secret: anyone with the name can read them)
   TRADE_SOL      SOL per copied buy in the wallet backtest of score.py (default 1)
   WALLET_SOL     SOL each strategy's paper wallet starts with (default 5)
-  BUY_PCT        share of a strategy's wallet value each copied buy spends (default 20)
+  BUY_PCT        share of a strategy's wallet value each copied buy spends (default 10)
   SLIPPAGE_PCT   price penalty per fill for arriving after the leader (default 3)
   FEE_SOL        network + priority fee per fill (default 0.001)
 """
@@ -30,13 +30,14 @@ FOLLOW = int(os.environ.get("FOLLOW") or 10)
 EARLY_FOLLOW = int(os.environ.get("EARLY_FOLLOW") or 0)  # early buyers snipe tokens of a few $1000s: too early to copy
 TRADE_SOL = float(os.environ.get("TRADE_SOL") or 1)
 WALLET_SOL = float(os.environ.get("WALLET_SOL") or 5)
-BUY_PCT = float(os.environ.get("BUY_PCT") or 20) / 100
+BUY_PCT = float(os.environ.get("BUY_PCT") or 10) / 100
 MIN_BUY_SOL = 0.05  # a smaller buy would mostly pay fees
 SLIP = float(os.environ.get("SLIPPAGE_PCT") or 3) / 100
 FEE_SOL = float(os.environ.get("FEE_SOL") or 0.001)
-MIN_LIQ_USD = 5_000    # a DEX pool with less than this can't take a 1 SOL trade without moving the price a lot
-MIN_MCAP_USD = 5_000   # the same floor for tokens still on their pump.fun bonding curve, which has no pool to measure
-DROP_AFTER = int(os.environ.get("DROP_AFTER") or 10)
+MIN_LIQ_USD = 10_000      # a DEX pool with less than this can't take a copy without moving the price a lot
+MIN_MCAP_USD = 100_000    # smaller tokens move too fast: copy bots and the wallet's own buy run the price away from a copy
+SELL_MIN_USD = 5_000      # a held token is still worth its price above this liquidity (or curve market cap)
+DROP_AFTER = int(os.environ.get("DROP_AFTER") or 3)  # a wallet whose first this many copies lost money in total is dropped
 CHASE = float(os.environ.get("CHASE_PCT") or 30) / 100
 TOP10_MAX = float(os.environ.get("TOP10_MAX_PCT") or 40) / 100
 
@@ -138,10 +139,17 @@ def token_info(mints):
 
 
 def tradable(ti):
-    """Whether a 1 SOL copy can be bought and sold in this token without moving its price much."""
+    """Whether a token is big enough to copy a buy into: a market cap of MIN_MCAP_USD and a pool of MIN_LIQ_USD."""
+    if ti.get("marketCapUsd", 0) < MIN_MCAP_USD:
+        return False
+    return ti.get("curve") or ti.get("liquidityUsd", 0) >= MIN_LIQ_USD
+
+
+def sellable(ti):
+    """Whether a held token's price can still be cashed out (pool or curve big enough to sell into)."""
     if ti.get("curve"):
-        return ti.get("marketCapUsd", 0) >= MIN_MCAP_USD
-    return ti.get("liquidityUsd", 0) >= MIN_LIQ_USD
+        return ti.get("marketCapUsd", 0) >= SELL_MIN_USD
+    return ti.get("liquidityUsd", 0) >= SELL_MIN_USD
 
 
 def parse_swap(tx, wallet, sol_price):
@@ -273,6 +281,15 @@ def load_state():
         st["archives"].append(arch)
         st["wallet"]["resetAt"] = at
         print(f"reset: archived the run to data/{arch['file']}; the paper wallet starts again with {WALLET_SOL:g} SOL", file=sys.stderr)
+    if st.get("dropAfter") != DROP_AFTER:  # the drop rule changed: apply it to the archived runs as well
+        import glob
+        blocked = set(st.get("blocked", []))
+        for path in glob.glob(f"{DATA}/archive/paper_state_*.json"):
+            try:
+                blocked |= losing_wallets(json.load(open(path)))
+            except ValueError:
+                pass
+        st["blocked"], st["dropAfter"] = sorted(blocked), DROP_AFTER
     if "blocked" not in st:  # a reset made before blocked wallets carried over: take them from the archived run
         import glob
         prev = sorted(glob.glob(f"{DATA}/archive/paper_state_*.json"))

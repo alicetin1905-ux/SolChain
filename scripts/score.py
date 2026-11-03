@@ -34,7 +34,7 @@ BUSY_TXS_PER_DAY = 2000 # successful transactions naming a wallet a day beyond w
 SIG_PAGES = 5           # signature pages (1000 each) to look through per wallet
 WALLET_TXS_DEEP = int(os.environ.get("WALLET_TXS_DEEP") or 1000)  # second, longer read of the wallets that pass
 DEEP_SIG_PAGES = 12
-LIVE_MIN_COPIES = 5     # live copies needed before their result can fail a wallet
+LIVE_MIN_COPIES = 3     # live copies needed before their result can fail (or carry) a wallet
 GAP_MIN = 3             # measured fills needed before a wallet's own price gap replaces the average
 GAP_FETCH_MAX = 400     # wallet transactions fetched per run to learn the price of older copies
 
@@ -302,7 +302,7 @@ def main():
     mints = {s["mint"] for swaps, _, _ in hist.values() for s in swaps or []}
     info = P.token_info(mints) if mints else {}
     # tokens with no pair, or too little liquidity to sell into, are worth 0: an illiquid pool's price can't be cashed out
-    prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items() if P.tradable(i)}
+    prices = {m: (i.get("priceUsd") or 0) / sp for m, i in info.items() if P.sellable(i)}
     # total supply from market cap and price, to tell each buy's market cap; a token without a pair now keeps counting
     supply = {m: i["marketCapUsd"] / i["priceUsd"] for m, i in info.items() if i.get("priceUsd") and i.get("marketCapUsd")}
     try:
@@ -336,7 +336,7 @@ def main():
         if new:
             more = P.token_info(new)
             info.update(more)
-            prices.update({m: (i.get("priceUsd") or 0) / sp for m, i in more.items() if P.tradable(i)})
+            prices.update({m: (i.get("priceUsd") or 0) / sp for m, i in more.items() if P.sellable(i)})
             supply.update({m: i["marketCapUsd"] / i["priceUsd"] for m, i in more.items() if i.get("priceUsd") and i.get("marketCapUsd")})
         rows[w] = judge(w, swaps, rate, span)
         rows[w]["deep"] = True
