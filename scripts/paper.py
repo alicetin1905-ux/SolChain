@@ -108,6 +108,11 @@ def rpc(method, params):
             print(f"  {method} refused: {e}", file=sys.stderr)
             return None
         except RuntimeError:  # rate-limited or unreachable for a while: back off and try again
+            RPC_FAILS[0] += 1
+            if RPC_GIVE_UP and RPC_FAILS[0] >= RPC_GIVE_UP:
+                # the RPC refuses everything (rate limit or used up credits); stop rather than wait for hours
+                print(f"the RPC refused {RPC_FAILS[0]} requests in a row; stopping. Check the RPC plan's usage and limits.", file=sys.stderr)
+                os._exit(3)
             time.sleep(5 + 2 ** attempt)
             continue
         RPC_FAILS[0] = 0
@@ -117,11 +122,6 @@ def rpc(method, params):
             print(f"  rpc error: {str(r['error'])[:160]}", file=sys.stderr)
             return None
         time.sleep(1 + 2 ** attempt)
-    RPC_FAILS[0] += 1
-    if RPC_GIVE_UP and RPC_FAILS[0] >= RPC_GIVE_UP:
-        # the RPC refuses everything (often: the plan's monthly credits are used up); stop rather than wait for hours
-        print(f"the RPC refused {RPC_FAILS[0]} requests in a row; stopping. Check the RPC plan's usage.", file=sys.stderr)
-        os._exit(3)
     return None
 
 
