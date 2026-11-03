@@ -27,6 +27,7 @@ jobs:
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
+          RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
           MAX_TOKENS: "25"
           BUYERS: "60"
         run: python -u scripts/early.py data

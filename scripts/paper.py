@@ -82,12 +82,22 @@ def get(url, body=None, tries=4):
         except urllib.error.HTTPError as e:
             if e.code in (400, 401, 403, 404, 405, 413):
                 raise Refused(f"HTTP {e.code} from {url.split('?')[0]}")
-            print(f"  retry {i+1} after {e}", file=sys.stderr)
+            why = ""
+            if e.code == 429 and i == tries - 1:  # say why the provider refuses (e.g. credits used up), once per request
+                try:
+                    why = " — " + e.read().decode("utf-8", "replace")[:160]
+                except Exception:
+                    pass
+            print(f"  retry {i+1} after {e}{why}", file=sys.stderr)
             time.sleep(2 ** i)
         except Exception as e:
             print(f"  retry {i+1} after {e}", file=sys.stderr)
             time.sleep(2 ** i)
     raise RuntimeError(f"failed: {url.split('?')[0]}")  # never log an API key in the query
+
+
+RPC_FAILS = [0]           # requests in a row that the RPC kept refusing
+RPC_GIVE_UP = int(os.environ.get("RPC_GIVE_UP") or 0)  # batch jobs: stop after this many in a row (0 = never)
 
 
 def rpc(method, params):
@@ -100,12 +110,18 @@ def rpc(method, params):
         except RuntimeError:  # rate-limited or unreachable for a while: back off and try again
             time.sleep(5 + 2 ** attempt)
             continue
+        RPC_FAILS[0] = 0
         if "error" not in r:
             return r.get("result")
         if r["error"].get("code") not in (-32005, -32429, 429, -32603):
             print(f"  rpc error: {str(r['error'])[:160]}", file=sys.stderr)
             return None
         time.sleep(1 + 2 ** attempt)
+    RPC_FAILS[0] += 1
+    if RPC_GIVE_UP and RPC_FAILS[0] >= RPC_GIVE_UP:
+        # the RPC refuses everything (often: the plan's monthly credits are used up); stop rather than wait for hours
+        print(f"the RPC refused {RPC_FAILS[0]} requests in a row; stopping. Check the RPC plan's usage.", file=sys.stderr)
+        os._exit(3)
     return None
 
 

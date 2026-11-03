@@ -31,6 +31,7 @@ jobs:
           SOL_RPC: ${{ secrets.SOL_RPC }}
           # Parallel RPC requests; 2 stays near the Helius free plan limit (10 requests/second).
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
+          RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
         run: |
           mkdir -p out
           python -u scripts/collect.py out

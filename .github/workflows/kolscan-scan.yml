@@ -27,11 +27,13 @@ jobs:
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
+          RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
         run: python -u scripts/kolscan_scan.py data
       - name: Score the promising ones properly
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
+          RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
           WALLET_TXS: "250"
           DAYS: "30"
         run: |
