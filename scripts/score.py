@@ -326,6 +326,11 @@ def main():
             r["provenLive"] = True
         return r
 
+    # a wallet with no transaction at all in the window (a mistyped or unused address) gets no row
+    empty = [w for w, (swaps, rate, span) in hist.items() if swaps == [] and not rate]
+    for w in empty:
+        print(f"  {w[:6]}: no transactions in the last {DAYS} days; left out", file=sys.stderr)
+        del hist[w]
     rows = {w: judge(w, *h) for w, h in hist.items()}
     # a short read can catch one lucky day: read the wallets that pass again, further back, before trusting them
     deep = [w for w, r in rows.items() if not r["flags"]]
