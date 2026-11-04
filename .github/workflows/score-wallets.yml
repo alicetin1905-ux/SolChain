@@ -34,8 +34,10 @@ jobs:
           SOL_RPC_FALLBACK: ${{ secrets.SOL_RPC_FALLBACK }}  # optional second provider while SOL_RPC is out of credits
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
           RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
-          CANDIDATES: "30"
+          CANDIDATES: "15"        # lighter while the free public RPC stands in for Helius
+          KOL_MAX: "20"
           WALLET_TXS: "250"
+          WALLET_TXS_DEEP: "500"
           DAYS: "30"
           SCORE_ONLY: ${{ inputs.wallets }}
         run: python -u scripts/score.py data
