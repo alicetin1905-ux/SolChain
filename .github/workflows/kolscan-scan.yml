@@ -26,12 +26,14 @@ jobs:
       - name: Take a short look at every Kolscan trader
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
+          SOL_RPC_FALLBACK: ${{ secrets.SOL_RPC_FALLBACK }}  # optional second provider while SOL_RPC is out of credits
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
           RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
         run: python -u scripts/kolscan_scan.py data
       - name: Score the promising ones properly
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
+          SOL_RPC_FALLBACK: ${{ secrets.SOL_RPC_FALLBACK }}  # optional second provider while SOL_RPC is out of credits
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
           RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
           WALLET_TXS: "250"

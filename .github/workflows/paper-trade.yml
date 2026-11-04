@@ -26,6 +26,7 @@ jobs:
       - name: Simulate copy trades
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
+          SOL_RPC_FALLBACK: ${{ secrets.SOL_RPC_FALLBACK }}  # optional second provider while SOL_RPC is out of credits
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FOLLOW: "10"

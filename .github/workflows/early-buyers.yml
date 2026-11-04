@@ -26,6 +26,7 @@ jobs:
       - name: Find wallets that bought pumped tokens early
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
+          SOL_RPC_FALLBACK: ${{ secrets.SOL_RPC_FALLBACK }}  # optional second provider while SOL_RPC is out of credits
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
           RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
           MAX_TOKENS: "25"

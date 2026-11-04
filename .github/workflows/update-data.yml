@@ -29,6 +29,7 @@ jobs:
           SWAPS: "1500"
           # Your own Solana RPC URL (repo secret). Without it the free public endpoint is used.
           SOL_RPC: ${{ secrets.SOL_RPC }}
+          SOL_RPC_FALLBACK: ${{ secrets.SOL_RPC_FALLBACK }}  # optional second provider while SOL_RPC is out of credits
           # Parallel RPC requests; 2 stays near the Helius free plan limit (10 requests/second).
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
           RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)

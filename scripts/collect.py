@@ -5,6 +5,8 @@ on-chain swaps on each pair's pool account via Solana RPC, because Dexscreener's
 own Top Traders endpoint is not public.
 """
 import json, sys, time, urllib.request, collections, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import paper as P
 from concurrent.futures import ThreadPoolExecutor
 
 # An empty SOL_RPC (an unset GitHub secret) falls back to the free public endpoint
@@ -35,18 +37,7 @@ def get(url, body=None, tries=6):
 
 def rpc_one(call):
     m, p = call
-    for attempt in range(6):
-        try:
-            r = get(RPC, {"jsonrpc": "2.0", "id": 1, "method": m, "params": p}, tries=3)
-            if "error" not in r:
-                return r.get("result")
-            if r["error"].get("code") not in (-32005, -32429, 429, -32603):
-                print(f"  rpc error: {str(r['error'])[:160]}", file=sys.stderr)
-                return None
-        except RuntimeError:
-            pass
-        time.sleep(1 + 2 ** attempt)
-    return None
+    return P.rpc(m, p)  # paper.rpc: retries, and switches to a fallback RPC while the main one is out of credits
 
 
 def rpc_batch(calls):

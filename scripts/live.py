@@ -229,8 +229,9 @@ class Engine:
             self.polling = os.environ.get("FORCE_POLL") == "1"
             for t in done:
                 err = None if t.cancelled() else t.exception()
-                if isinstance(err, SubscriptionFailed):
-                    log(f"websocket subscription refused ({err}); switching to polling")
+                if isinstance(err, SubscriptionFailed) or (err and "rejected WebSocket connection" in str(err)):
+                    # e.g. the RPC plan is out of credits: poll (over the fallback RPC) and try the websocket again later
+                    log(f"websocket refused ({err}); switching to polling")
                     self.polling = True
                 elif err:
                     log(f"connection lost: {err}; reconnecting in 5s")

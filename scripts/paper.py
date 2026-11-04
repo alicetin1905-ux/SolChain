@@ -6,6 +6,7 @@ and writes the result to data/paper.json for the site.
 
 Settings (environment):
   SOL_RPC        Solana RPC URL (falls back to the free public endpoint)
+  SOL_RPC_FALLBACK  RPC used while SOL_RPC's credits are used up (default: Solana's free public RPC)
   FOLLOW         number of wallets to follow: the best scored ones from data/scores.json,
                  or the leaderboard's top when there are no scores yet (default 10)
   EARLY_FOLLOW   number of repeat early buyers from data/early.json to follow too (default 0)
@@ -23,6 +24,8 @@ import calendar, json, os, ssl, sys, time, urllib.error, urllib.request, collect
 from concurrent.futures import ThreadPoolExecutor
 
 RPC = os.environ.get("SOL_RPC") or "https://solana-rpc.publicnode.com"
+# used while the main RPC says its plan's credits are used up: a second provider if set, else Solana's free public RPC
+RPC_FALLBACK = os.environ.get("SOL_RPC_FALLBACK") or "https://api.mainnet-beta.solana.com"
 DS = "https://api.dexscreener.com"
 WSOL = "So11111111111111111111111111111111111111112"
 STABLES = {"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY5NNmFfeQe36Ci"}
@@ -72,6 +75,10 @@ class Refused(RuntimeError):
     """The server refused the request itself (not a rate limit), so retrying won't help."""
 
 
+class OutOfCredits(RuntimeError):
+    """The RPC plan's usage is used up: no use retrying it until it renews."""
+
+
 def get(url, body=None, tries=4):
     for i in range(tries):
         try:
@@ -83,12 +90,14 @@ def get(url, body=None, tries=4):
             if e.code in (400, 401, 403, 404, 405, 413):
                 raise Refused(f"HTTP {e.code} from {url.split('?')[0]}")
             why = ""
-            if e.code == 429 and i == tries - 1:  # say why the provider refuses (e.g. credits used up), once per request
+            if e.code == 429:
                 try:
-                    why = " — " + e.read().decode("utf-8", "replace")[:160]
+                    why = e.read().decode("utf-8", "replace")[:160]
                 except Exception:
                     pass
-            print(f"  retry {i+1} after {e}{why}", file=sys.stderr)
+                if "max usage" in why.lower():
+                    raise OutOfCredits(f"{url.split('?')[0]}: {why}")
+            print(f"  retry {i+1} after {e}" + (f" — {why}" if why and i == tries - 1 else ""), file=sys.stderr)
             time.sleep(2 ** i)
         except Exception as e:
             print(f"  retry {i+1} after {e}", file=sys.stderr)
@@ -100,10 +109,30 @@ RPC_FAILS = [0]           # requests in a row that the RPC kept refusing
 RPC_GIVE_UP = int(os.environ.get("RPC_GIVE_UP") or 0)  # batch jobs: stop after this many in a row (0 = never)
 
 
+RPC_OUT_UNTIL = [0.0]     # while the main RPC is out of credits, requests go to RPC_FALLBACK until this time
+
+
+def rpc_url():
+    return RPC_FALLBACK if time.time() < RPC_OUT_UNTIL[0] else RPC
+
+
 def rpc(method, params):
     for attempt in range(6):
+        url = rpc_url()
         try:
-            r = get(RPC, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+            r = get(url, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        except OutOfCredits as e:
+            if url == RPC and RPC_FALLBACK != RPC:
+                if RPC_OUT_UNTIL[0] < time.time():
+                    print(f"  the main RPC is out of credits ({str(e)[:120]}); using {RPC_FALLBACK.split('?')[0]} for an hour", file=sys.stderr)
+                RPC_OUT_UNTIL[0] = time.time() + 3600
+                continue
+            RPC_FAILS[0] += 1
+            if RPC_GIVE_UP and RPC_FAILS[0] >= RPC_GIVE_UP:
+                print(f"every RPC is out of credits; stopping.", file=sys.stderr)
+                os._exit(3)
+            time.sleep(5 + 2 ** attempt)
+            continue
         except Refused as e:
             print(f"  {method} refused: {e}", file=sys.stderr)
             return None

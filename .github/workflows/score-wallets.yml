@@ -2,7 +2,7 @@ name: Score wallets
 
 on:
   schedule:
-    - cron: "37 9 * * *"  # daily, after the leaderboard and early-buyer runs
+    - cron: "37 9 */2 * *"  # every other day, to stay within the free RPC credits
   workflow_dispatch:
     inputs:
       wallets:
@@ -31,6 +31,7 @@ jobs:
       - name: Score candidate wallets on their recent history
         env:
           SOL_RPC: ${{ secrets.SOL_RPC }}
+          SOL_RPC_FALLBACK: ${{ secrets.SOL_RPC_FALLBACK }}  # optional second provider while SOL_RPC is out of credits
           RPC_THREADS: ${{ vars.RPC_THREADS || '2' }}
           RPC_GIVE_UP: "20"  # stop when the RPC refuses everything (credits used up)
           CANDIDATES: "30"
