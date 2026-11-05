@@ -388,7 +388,12 @@ def losing_wallets(st):
     for p in st.get("closed", []):
         if p.get("strategy", "follow") == "follow":
             res[p["wallet"]].append(p["pnlSol"])
-    return {w for w, pnl in res.items() if len(pnl) >= DROP_AFTER and sum(pnl) < 0} | set(st.get("blocked", []))
+    # data/allowed.json lifts drops from earlier runs for wallets you chose to follow again; losses in this run still count
+    try:
+        allowed = set(json.load(open(f"{DATA}/allowed.json")))
+    except (FileNotFoundError, ValueError):
+        allowed = set()
+    return {w for w, pnl in res.items() if len(pnl) >= DROP_AFTER and sum(pnl) < 0} | (set(st.get("blocked", [])) - allowed)
 
 
 def follow_list(st):
