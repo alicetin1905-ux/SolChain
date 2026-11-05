@@ -32,7 +32,7 @@ def get(url, body=None, tries=6):
             wait = 2 ** i
             print(f"  retry {i+1} after {e} (sleep {wait}s)", file=sys.stderr)
             time.sleep(wait)
-    raise RuntimeError(f"failed: {url.split('?')[0]}")  # never log an API key in the query
+    raise RuntimeError(f"failed: {P.host(url)}")  # never log an API key
 
 
 def rpc_one(call):

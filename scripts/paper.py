@@ -20,7 +20,7 @@ Settings (environment):
   SLIPPAGE_PCT   price penalty per fill for arriving after the leader (default 3)
   FEE_SOL        network + priority fee per fill (default 0.001)
 """
-import calendar, json, os, ssl, sys, time, urllib.error, urllib.request, collections
+import calendar, json, os, re, ssl, sys, time, urllib.error, urllib.request, collections
 from concurrent.futures import ThreadPoolExecutor
 
 RPC = os.environ.get("SOL_RPC") or "https://solana-rpc.publicnode.com"
@@ -71,6 +71,12 @@ except ImportError:
 POOL = ThreadPoolExecutor(int(os.environ.get("RPC_THREADS") or 2))
 
 
+def host(url):
+    """Only the scheme and host of a URL, for logs: providers put API keys in the query (Helius) or the path (Alchemy)."""
+    m = re.match(r"(https?|wss?)://[^/?#]+", url or "")
+    return m.group(0) if m else "?"
+
+
 class Refused(RuntimeError):
     """The server refused the request itself (not a rate limit), so retrying won't help."""
 
@@ -88,7 +94,7 @@ def get(url, body=None, tries=4):
                 return json.load(r)
         except urllib.error.HTTPError as e:
             if e.code in (400, 401, 403, 404, 405, 413):
-                raise Refused(f"HTTP {e.code} from {url.split('?')[0]}")
+                raise Refused(f"HTTP {e.code} from {host(url)}")
             why = ""
             if e.code == 429:
                 try:
@@ -96,13 +102,13 @@ def get(url, body=None, tries=4):
                 except Exception:
                     pass
                 if "max usage" in why.lower():
-                    raise OutOfCredits(f"{url.split('?')[0]}: {why}")
+                    raise OutOfCredits(f"{host(url)}: {why}")
             print(f"  retry {i+1} after {e}" + (f" — {why}" if why and i == tries - 1 else ""), file=sys.stderr)
             time.sleep(2 ** i)
         except Exception as e:
             print(f"  retry {i+1} after {e}", file=sys.stderr)
             time.sleep(2 ** i)
-    raise RuntimeError(f"failed: {url.split('?')[0]}")  # never log an API key in the query
+    raise RuntimeError(f"failed: {host(url)}")  # never log an API key
 
 
 RPC_FAILS = [0]           # requests in a row that the RPC kept refusing
@@ -124,7 +130,7 @@ def rpc(method, params):
         except OutOfCredits as e:
             if url == RPC and RPC_FALLBACK != RPC:
                 if RPC_OUT_UNTIL[0] < time.time():
-                    print(f"  the main RPC is out of credits ({str(e)[:120]}); using {RPC_FALLBACK.split('?')[0]} for an hour", file=sys.stderr)
+                    print(f"  the main RPC is out of credits ({str(e)[:120]}); using {host(RPC_FALLBACK)} for an hour", file=sys.stderr)
                 RPC_OUT_UNTIL[0] = time.time() + 3600
                 continue
             RPC_FAILS[0] += 1
