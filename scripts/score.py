@@ -34,7 +34,9 @@ BUSY_TXS_PER_DAY = 2000 # successful transactions naming a wallet a day beyond w
 SIG_PAGES = 5           # signature pages (1000 each) to look through per wallet
 WALLET_TXS_DEEP = int(os.environ.get("WALLET_TXS_DEEP") or 1000)  # second, longer read of the wallets that pass
 DEEP_SIG_PAGES = 12
-LIVE_MIN_COPIES = 3     # live copies needed before their result can fail (or carry) a wallet
+LIVE_MIN_COPIES = 3     # live copies that lost money in total fail a wallet from this many on
+LIVE_PROVEN_COPIES = 5  # live copies needed before their result can carry a wallet past its backtest
+LIVE_PROVEN_AVG = 0.10  # ... and the average they must have made per SOL put in
 GAP_MIN = 3             # measured fills needed before a wallet's own price gap replaces the average
 GAP_FETCH_MAX = 400     # wallet transactions fetched per run to learn the price of older copies
 
@@ -321,7 +323,7 @@ def main():
         r["liveCopies"], r["livePnlSol"] = n, round(pnl, 3)
         if n >= LIVE_MIN_COPIES and pnl < 0:
             r["flags"].append("losing live")
-        elif n >= LIVE_MIN_COPIES and pnl > 0 and "too busy to follow" not in r["flags"]:
+        elif n >= LIVE_PROVEN_COPIES and pnl / n >= LIVE_PROVEN_AVG and "too busy to follow" not in r["flags"]:
             r["flags"] = []  # its real copies made money: that outweighs what a short history suggests
             r["provenLive"] = True
         return r
